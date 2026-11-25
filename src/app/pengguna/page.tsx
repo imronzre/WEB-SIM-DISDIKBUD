@@ -101,9 +101,11 @@ export default function PenggunaPage() {
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [passwordFilter, setPasswordFilter] = useState<string>('all');
 
-  // Modal & Notifikasi
+  // Modal, Loading & Notifikasi
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [resetTargetUser, setResetTargetUser] = useState<ManagedUser | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
   const [alertSuccess, setAlertSuccess] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
@@ -114,6 +116,7 @@ export default function PenggunaPage() {
   const [formKecamatanId, setFormKecamatanId] = useState('');
   const [formLembagaId, setFormLembagaId] = useState('');
   const [formError, setFormError] = useState('');
+  const [resetError, setResetError] = useState('');
 
   const persistUsers = (nextUsers: ManagedUser[]) => {
     setUsersList(nextUsers);
@@ -178,7 +181,7 @@ export default function PenggunaPage() {
     setTimeout(() => setAlertSuccess(''), 4000);
   };
 
-  const handleCreateUser = (e: React.FormEvent) => {
+  const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
 
@@ -198,64 +201,120 @@ export default function PenggunaPage() {
     const kecObj = kecamatanList.find((k) => k.id === formKecamatanId);
     const lemObj = lembagaList.find((l) => l.id === formLembagaId);
 
-    const newUser: ManagedUser = {
-      id: `usr-${Date.now()}`,
-      nama: cleanNama,
-      email: cleanEmail,
-      role: formRole,
-      password: DEFAULT_PASSWORD,
-      password_status: 'default',
-      kecamatan_id:
-        formRole === 'admin_kecamatan'
-          ? formKecamatanId
-          : lemObj?.kecamatan_id || null,
-      kecamatan_nama:
-        formRole === 'admin_kecamatan'
-          ? kecObj?.nama || null
-          : lemObj?.kecamatan_nama || null,
-      lembaga_id: formRole === 'operator_sekolah' ? formLembagaId : null,
-      lembaga_nama: formRole === 'operator_sekolah' ? lemObj?.nama || null : null,
-      created_at: new Date().toISOString(),
-    };
+    const resolvedKecamatanId =
+      formRole === 'admin_kecamatan'
+        ? formKecamatanId
+        : lemObj?.kecamatan_id || null;
+    const resolvedKecamatanNama =
+      formRole === 'admin_kecamatan'
+        ? kecObj?.nama || null
+        : lemObj?.kecamatan_nama || null;
+    const resolvedLembagaId =
+      formRole === 'operator_sekolah' ? formLembagaId : null;
+    const resolvedLembagaNama =
+      formRole === 'operator_sekolah' ? lemObj?.nama || null : null;
 
-    const updated = [newUser, ...usersList];
-    persistUsers(updated);
+    setIsSubmitting(true);
+    try {
+      const res = await fetch('/api/pengguna', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nama: cleanNama,
+          email: cleanEmail,
+          password: DEFAULT_PASSWORD,
+          role: formRole,
+          kecamatan_id: resolvedKecamatanId,
+          lembaga_id: resolvedLembagaId,
+        }),
+      });
 
-    AppDataStore.addActivityLog(
-      'BUAT_AKUN',
-      `Membuat akun ${newUser.nama} (${newUser.email}) peran ${newUser.role}`,
-      currentUser
-    );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setFormError(data.error || 'Gagal mendaftarkan akun ke Supabase Auth.');
+        return;
+      }
 
-    setFormNama('');
-    setFormEmail('');
-    setIsAddModalOpen(false);
-    showToast(`Akun ${newUser.nama} berhasil dibuat.`);
+      const newUser: ManagedUser = {
+        id: data.id || `usr-${Date.now()}`,
+        nama: cleanNama,
+        email: cleanEmail,
+        role: formRole,
+        password: DEFAULT_PASSWORD,
+        password_status: 'default',
+        kecamatan_id: resolvedKecamatanId,
+        kecamatan_nama: resolvedKecamatanNama,
+        lembaga_id: resolvedLembagaId,
+        lembaga_nama: resolvedLembagaNama,
+        created_at: new Date().toISOString(),
+      };
+
+      const updated = [newUser, ...usersList];
+      persistUsers(updated);
+
+      AppDataStore.addActivityLog(
+        'BUAT_AKUN',
+        `Membuat akun ${newUser.nama} (${newUser.email}) peran ${newUser.role}`,
+        currentUser
+      );
+
+      setFormNama('');
+      setFormEmail('');
+      setIsAddModalOpen(false);
+      showToast(`Akun ${newUser.nama} berhasil dibuat (sandi: ${DEFAULT_PASSWORD}).`);
+    } catch {
+      setFormError('Terjadi kesalahan jaringan saat menghubungi /api/pengguna.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleConfirmResetDefault = () => {
+  const handleConfirmResetDefault = async () => {
     if (!resetTargetUser) return;
+    setResetError('');
+    setIsResetting(true);
 
-    const updated = usersList.map((u) =>
-      u.id === resetTargetUser.id
-        ? {
-          ...u,
+    try {
+      const res = await fetch('/api/pengguna', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: resetTargetUser.id,
           password: DEFAULT_PASSWORD,
-          password_status: 'default' as const,
-        }
-        : u
-    );
+        }),
+      });
 
-    persistUsers(updated);
-    AppDataStore.addActivityLog(
-      'RESET_PASSWORD_DEFAULT',
-      `Mereset kata sandi ${resetTargetUser.nama} (${resetTargetUser.email}) ke default`,
-      currentUser
-    );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setResetError(data.error || 'Gagal mereset kata sandi di Supabase Auth.');
+        return;
+      }
 
-    const targetName = resetTargetUser.nama;
-    setResetTargetUser(null);
-    showToast(`Kata sandi ${targetName} telah direset.`);
+      const updated = usersList.map((u) =>
+        u.id === resetTargetUser.id
+          ? {
+            ...u,
+            password: DEFAULT_PASSWORD,
+            password_status: 'default' as const,
+          }
+          : u
+      );
+
+      persistUsers(updated);
+      AppDataStore.addActivityLog(
+        'RESET_PASSWORD_DEFAULT',
+        `Mereset kata sandi ${resetTargetUser.nama} (${resetTargetUser.email}) ke default`,
+        currentUser
+      );
+
+      const targetName = resetTargetUser.nama;
+      setResetTargetUser(null);
+      showToast(`Kata sandi ${targetName} telah direset ke ${DEFAULT_PASSWORD}.`);
+    } catch {
+      setResetError('Terjadi kesalahan jaringan saat mereset kata sandi.');
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   const handleDeleteUser = (target: ManagedUser) => {
@@ -474,7 +533,10 @@ export default function PenggunaPage() {
                             variant="outline"
                             size="sm"
                             className="text-[11px] py-1"
-                            onClick={() => setResetTargetUser(u)}
+                            onClick={() => {
+                              setResetError('');
+                              setResetTargetUser(u);
+                            }}
                             leftIcon={<KeyRound className="w-3.5 h-3.5" />}
                           >
                             Reset Sandi
@@ -504,7 +566,7 @@ export default function PenggunaPage() {
       {/* Modal Buat Akun */}
       <Modal
         isOpen={isAddModalOpen}
-        onClose={() => setIsAddModalOpen(false)}
+        onClose={() => !isSubmitting && setIsAddModalOpen(false)}
         title="Buat Akun Baru"
       >
         <form onSubmit={handleCreateUser} className="space-y-4 text-xs">
@@ -599,12 +661,13 @@ export default function PenggunaPage() {
               type="button"
               variant="outline"
               size="sm"
+              disabled={isSubmitting}
               onClick={() => setIsAddModalOpen(false)}
             >
               Batal
             </Button>
-            <Button type="submit" variant="primary" size="sm">
-              Simpan Akun
+            <Button type="submit" variant="primary" size="sm" disabled={isSubmitting}>
+              {isSubmitting ? 'Menyimpan...' : 'Simpan Akun'}
             </Button>
           </div>
         </form>
@@ -613,18 +676,24 @@ export default function PenggunaPage() {
       {/* Modal Reset Sandi */}
       <Modal
         isOpen={Boolean(resetTargetUser)}
-        onClose={() => setResetTargetUser(null)}
+        onClose={() => !isResetting && setResetTargetUser(null)}
         title="Reset Kata Sandi"
       >
         <div className="space-y-4 text-xs">
+          {resetError && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700">
+              {resetError}
+            </div>
+          )}
           <p className="text-slate-600">
-            Reset kata sandi akun <strong className="text-slate-900">{resetTargetUser?.nama}</strong> ke sandi awal?
+            Reset kata sandi akun <strong className="text-slate-900">{resetTargetUser?.nama}</strong> ke sandi awal ({DEFAULT_PASSWORD})?
           </p>
           <div className="pt-2 flex items-center justify-end gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
+              disabled={isResetting}
               onClick={() => setResetTargetUser(null)}
             >
               Batal
@@ -633,10 +702,11 @@ export default function PenggunaPage() {
               type="button"
               variant="primary"
               size="sm"
+              disabled={isResetting}
               onClick={handleConfirmResetDefault}
               leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
             >
-              Reset Sandi
+              {isResetting ? 'Mereset...' : 'Reset Sandi'}
             </Button>
           </div>
         </div>
