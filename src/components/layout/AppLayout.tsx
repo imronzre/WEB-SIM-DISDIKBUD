@@ -7,8 +7,6 @@ import {
   LayoutDashboard,
   Users,
   School,
-  MapPin,
-  UploadCloud,
   FileText,
   UserCog,
   History,
@@ -19,7 +17,6 @@ import {
   ShieldAlert,
   Building2,
   Database,
-  UserCheck,
 } from 'lucide-react';
 import { AppDataStore } from '@/lib/store';
 import { UserProfile, normalizeRole } from '@/lib/types';
@@ -49,12 +46,10 @@ export default function AppLayout({
       const { data: { user } } = await supabase.auth.getUser();
 
       if (!user) {
-        // Jika tidak ada sesi auth di Supabase, redirect ke login
         router.replace('/login');
         return;
       }
 
-      // Ambil profile dari database Supabase
       const { data: profile } = await supabase
         .from('profiles')
         .select(`
@@ -128,24 +123,6 @@ export default function AppLayout({
       roles: ['admin_dinas', 'admin_kecamatan', 'operator_sekolah'],
     },
     {
-      label: 'Daftar Lembaga',
-      href: '/lembaga',
-      icon: School,
-      roles: ['admin_dinas', 'admin_kecamatan', 'operator_sekolah'],
-    },
-    {
-      label: 'Kecamatan',
-      href: '/kecamatan',
-      icon: MapPin,
-      roles: ['admin_dinas'], // Hanya Admin Dinas
-    },
-    {
-      label: 'Unggah Excel Siswa',
-      href: '/unggah',
-      icon: UploadCloud,
-      roles: ['admin_dinas', 'operator_sekolah'], // Admin Dinas & Operator Sekolah (Kecamatan tidak bisa)
-    },
-    {
       label: 'Laporan & Cetak',
       href: '/laporan',
       icon: FileText,
@@ -155,20 +132,22 @@ export default function AppLayout({
       label: 'Manajemen Akun',
       href: '/pengguna',
       icon: UserCog,
-      roles: ['admin_dinas'], // Hanya Admin Dinas
+      roles: ['admin_dinas'],
     },
     {
       label: 'Log Aktivitas',
       href: '/log-aktivitas',
       icon: History,
-      roles: ['admin_dinas'], // Hanya Admin Dinas
+      roles: ['admin_dinas'],
     },
   ];
 
   const allowedNav = navItems.filter((item) => item.roles.includes(role));
 
   // Pengecekan akses rute halaman saat ini
-  const currentNavRule = navItems.find((item) => pathname === item.href || pathname.startsWith(`${item.href}/`));
+  const currentNavRule = navItems.find(
+    (item) => pathname === item.href || pathname.startsWith(`${item.href}/`)
+  );
   const isUnauthorizedPage = currentNavRule && !currentNavRule.roles.includes(role);
 
   const roleDisplayInfo = {
@@ -239,9 +218,8 @@ export default function AppLayout({
 
       {/* Sidebar Navigation */}
       <aside
-        className={`fixed md:sticky top-8 md:top-8 h-[calc(100vh-2rem)] w-64 bg-white border-r border-slate-200/90 z-40 flex flex-col transition-transform duration-200 no-print ${
-          mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
-        }`}
+        className={`fixed md:sticky top-8 md:top-8 h-[calc(100vh-2rem)] w-64 bg-white border-r border-slate-200/90 z-40 flex flex-col transition-transform duration-200 no-print ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+          }`}
       >
         {/* Brand */}
         <div className="p-5 border-b border-slate-100">
@@ -288,11 +266,10 @@ export default function AppLayout({
                 key={item.href}
                 href={item.href}
                 onClick={() => setMobileMenuOpen(false)}
-                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition ${
-                  isActive
+                className={`flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition ${isActive
                     ? 'bg-blue-700 text-white shadow-sm shadow-blue-600/30'
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                }`}
+                  }`}
               >
                 <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
                 <span>{item.label}</span>
