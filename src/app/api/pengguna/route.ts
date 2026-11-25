@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
+const UUID_REGEX =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function toValidUuid(val: unknown): string | null {
+    if (typeof val === 'string' && UUID_REGEX.test(val.trim())) {
+        return val.trim();
+    }
+    return null;
+}
+
 function getAdminClient() {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -43,8 +53,8 @@ export async function POST(req: NextRequest) {
             email,
             nama,
             role,
-            kecamatan_id: kecamatan_id || null,
-            lembaga_id: lembaga_id || null,
+            kecamatan_id: toValidUuid(kecamatan_id),
+            lembaga_id: toValidUuid(lembaga_id),
         });
 
         if (profileErr) {

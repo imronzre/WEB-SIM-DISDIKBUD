@@ -1,6 +1,15 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 
+function clearSupabaseAuthCookies(request: NextRequest, response: NextResponse) {
+  request.cookies.getAll().forEach(({ name }) => {
+    if (name.startsWith('sb-')) {
+      request.cookies.delete(name);
+      response.cookies.delete(name);
+    }
+  });
+}
+
 export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
     request: {
@@ -32,10 +41,28 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  // Verifikasi sesi pengguna aktif via Supabase Auth
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user = null;
+
+  try {
+    const {
+      data,
+      error,
+    } = await supabase.auth.getUser();
+
+    if (error) {
+      const isRefreshTokenError =
+        error.code === 'refresh_token_not_found' ||
+        error.message?.toLowerCase().includes('refresh token');
+
+      if (isRefreshTokenError) {
+        clearSupabaseAuthCookies(request, response);
+      }
+    } else {
+      user = data.user;
+    }
+  } catch {
+    clearSupabaseAuthCookies(request, response);
+  }
 
   const pathname = request.nextUrl.pathname;
 
@@ -61,7 +88,9 @@ export async function middleware(request: NextRequest) {
   if (!user && (isProtected || isRoot)) {
     const redirectUrl = request.nextUrl.clone();
     redirectUrl.pathname = '/login';
-    return NextResponse.redirect(redirectUrl);
+    const redirectResponse = NextResponse.redirect(redirectUrl);
+    clearSupabaseAuthCookies(request, redirectResponse);
+    return redirectResponse;
   }
 
   // 2. Jika pengguna sudah login dan mencoba mengakses /login atau / -> REDIRECT KE /dashboard
