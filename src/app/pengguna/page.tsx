@@ -96,18 +96,18 @@ export default function PenggunaPage() {
   const [kecamatanList, setKecamatanList] = useState<Kecamatan[]>([]);
   const [lembagaList, setLembagaList] = useState<Lembaga[]>([]);
 
-  // Research / Search & Filter
+  // Filter
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [passwordFilter, setPasswordFilter] = useState<string>('all');
 
-  // Modal & Notification State
+  // Modal & Notifikasi
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [resetTargetUser, setResetTargetUser] = useState<ManagedUser | null>(null);
   const [alertSuccess, setAlertSuccess] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Form Buat Akun (Password Default: 123456)
+  // Form Buat Akun
   const [formNama, setFormNama] = useState('');
   const [formEmail, setFormEmail] = useState('');
   const [formRole, setFormRole] = useState<CreatableRole>('operator_sekolah');
@@ -191,7 +191,7 @@ export default function PenggunaPage() {
     }
 
     if (usersList.some((u) => u.email.toLowerCase() === cleanEmail)) {
-      setFormError('Email tersebut sudah terdaftar pada akun lain.');
+      setFormError('Email tersebut sudah terdaftar.');
       return;
     }
 
@@ -223,16 +223,14 @@ export default function PenggunaPage() {
 
     AppDataStore.addActivityLog(
       'BUAT_AKUN',
-      `Membuat akun ${newUser.nama} (${newUser.email}) peran ${newUser.role} dengan password awal ${DEFAULT_PASSWORD}`,
+      `Membuat akun ${newUser.nama} (${newUser.email}) peran ${newUser.role}`,
       currentUser
     );
 
     setFormNama('');
     setFormEmail('');
     setIsAddModalOpen(false);
-    showToast(
-      `Akun ${newUser.nama} berhasil dibuat dengan password awal "${DEFAULT_PASSWORD}".`
-    );
+    showToast(`Akun ${newUser.nama} berhasil dibuat.`);
   };
 
   const handleConfirmResetDefault = () => {
@@ -251,13 +249,13 @@ export default function PenggunaPage() {
     persistUsers(updated);
     AppDataStore.addActivityLog(
       'RESET_PASSWORD_DEFAULT',
-      `Mereset kata sandi ${resetTargetUser.nama} (${resetTargetUser.email}) ke default (${DEFAULT_PASSWORD})`,
+      `Mereset kata sandi ${resetTargetUser.nama} (${resetTargetUser.email}) ke default`,
       currentUser
     );
 
     const targetName = resetTargetUser.nama;
     setResetTargetUser(null);
-    showToast(`Password ${targetName} berhasil direset ke "${DEFAULT_PASSWORD}".`);
+    showToast(`Kata sandi ${targetName} telah direset.`);
   };
 
   const handleDeleteUser = (target: ManagedUser) => {
@@ -269,7 +267,7 @@ export default function PenggunaPage() {
       `Menghapus akun ${target.nama} (${target.email})`,
       currentUser
     );
-    showToast(`Akun ${target.nama} telah dihapus.`);
+    showToast(`Akun ${target.nama} dihapus.`);
   };
 
   const handleCopyCredentials = async (userItem: ManagedUser) => {
@@ -280,7 +278,7 @@ export default function PenggunaPage() {
       setCopiedId(userItem.id);
       setTimeout(() => setCopiedId(null), 2000);
     } catch {
-      showToast(`Email: ${userItem.email} | Password: ${passText}`);
+      showToast(`${userItem.email} | ${passText}`);
     }
   };
 
@@ -304,8 +302,8 @@ export default function PenggunaPage() {
 
   return (
     <AppLayout
-      title="Manajemen Akun & Research Pengguna"
-      subtitle="Buat akun kecamatan & lembaga dengan password awal 123456, cari akun, dan reset password"
+      title="Manajemen Akun"
+      subtitle="Kelola akun kecamatan, sekolah, dan reset kata sandi"
       breadcrumbs={[{ label: 'Manajemen Akun' }]}
     >
       {alertSuccess && (
@@ -316,16 +314,11 @@ export default function PenggunaPage() {
       )}
 
       {/* Top Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
-        <div className="space-y-0.5">
-          <span className="text-xs font-semibold text-slate-500 block">
-            Menampilkan <strong className="text-blue-700">{filteredUsers.length}</strong> dari{' '}
-            <strong>{usersList.length}</strong> akun terdaftar
-          </span>
-          <span className="text-[11px] text-slate-500 block">
-            Password default akun baru: <strong className="font-mono text-slate-800">{DEFAULT_PASSWORD}</strong> (pengguna dapat menggantinya sendiri setelah masuk)
-          </span>
-        </div>
+      <div className="flex items-center justify-between gap-4 mb-6">
+        <span className="text-xs font-semibold text-slate-500">
+          Menampilkan <strong className="text-blue-700">{filteredUsers.length}</strong> dari{' '}
+          <strong>{usersList.length}</strong> akun
+        </span>
 
         <Button
           variant="primary"
@@ -336,23 +329,23 @@ export default function PenggunaPage() {
           }}
           leftIcon={<Plus className="w-4 h-4" />}
         >
-          Buat Akun Baru (123456)
+          Buat Akun Baru
         </Button>
       </div>
 
-      {/* Research / Search & Filter */}
+      {/* Filter */}
       <Card className="mb-6">
         <CardContent className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                Research Akun (Nama / Email / Wilayah / Lembaga)
+                Cari Akun
               </label>
               <div className="relative">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
                   type="text"
-                  placeholder="Cari nama, email, kecamatan, atau lembaga..."
+                  placeholder="Nama, email, wilayah, lembaga..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg outline-none focus:ring-1 focus:ring-blue-600"
@@ -362,7 +355,7 @@ export default function PenggunaPage() {
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                Filter Peran (Role)
+                Peran
               </label>
               <select
                 value={roleFilter}
@@ -378,32 +371,32 @@ export default function PenggunaPage() {
 
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                Status Kata Sandi
+                Status Sandi
               </label>
               <select
                 value={passwordFilter}
                 onChange={(e) => setPasswordFilter(e.target.value)}
                 className="w-full text-xs border border-slate-300 rounded-lg px-3 py-1.5 bg-white text-slate-700 outline-none focus:ring-1 focus:ring-blue-600"
               >
-                <option value="all">Semua Status Sandi</option>
-                <option value="default">Default (123456)</option>
-                <option value="changed">Sudah Diganti User</option>
+                <option value="all">Semua Status</option>
+                <option value="default">Default ({DEFAULT_PASSWORD})</option>
+                <option value="changed">Sudah Diganti</option>
               </select>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Users Table */}
+      {/* Tabel Akun */}
       <Card>
         <CardContent className="p-0 overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                <th className="py-3 px-4">Nama Lengkap &amp; Email</th>
-                <th className="py-3 px-4">Peran (Role)</th>
+                <th className="py-3 px-4">Nama &amp; Email</th>
+                <th className="py-3 px-4">Peran</th>
                 <th className="py-3 px-4">Wilayah / Lembaga</th>
-                <th className="py-3 px-4">Status Sandi</th>
+                <th className="py-3 px-4">Sandi</th>
                 <th className="py-3 px-4">Dibuat</th>
                 <th className="py-3 px-4 text-center">Aksi</th>
               </tr>
@@ -412,7 +405,7 @@ export default function PenggunaPage() {
               {filteredUsers.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-10 text-center text-slate-400">
-                    Tidak ada akun yang cocok dengan pencarian atau filter.
+                    Tidak ada data akun.
                   </td>
                 </tr>
               ) : (
@@ -446,12 +439,12 @@ export default function PenggunaPage() {
                           </p>
                         )}
                         {!u.lembaga_nama && !u.kecamatan_nama && (
-                          <span className="text-slate-400">Dinas / Pusat</span>
+                          <span className="text-slate-400">Dinas</span>
                         )}
                       </td>
                       <td className="py-3 px-4">
                         {isDefaultPass ? (
-                          <Badge variant="warning">Default ({DEFAULT_PASSWORD})</Badge>
+                          <Badge variant="warning">{DEFAULT_PASSWORD}</Badge>
                         ) : (
                           <Badge variant="info">Sudah Diganti</Badge>
                         )}
@@ -484,7 +477,7 @@ export default function PenggunaPage() {
                             onClick={() => setResetTargetUser(u)}
                             leftIcon={<KeyRound className="w-3.5 h-3.5" />}
                           >
-                            Reset 123456
+                            Reset Sandi
                           </Button>
 
                           {uRole !== 'admin_dinas' && (
@@ -508,12 +501,11 @@ export default function PenggunaPage() {
         </CardContent>
       </Card>
 
-      {/* Modal Buat Akun Baru */}
+      {/* Modal Buat Akun */}
       <Modal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
-        title="Buat Akun Kecamatan / Sekolah"
-        description={`Akun baru otomatis memakai kata sandi default "${DEFAULT_PASSWORD}" untuk dibagikan kepada pengguna.`}
+        title="Buat Akun Baru"
       >
         <form onSubmit={handleCreateUser} className="space-y-4 text-xs">
           {formError && (
@@ -522,27 +514,23 @@ export default function PenggunaPage() {
             </div>
           )}
 
-          <div className="p-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-900">
-            Kata sandi awal otomatis: <strong className="font-mono">{DEFAULT_PASSWORD}</strong>. Pengguna dapat mengganti kata sandi sendiri setelah masuk ke sistem.
-          </div>
-
           <div>
             <label className="block font-semibold text-slate-700 mb-1">
-              Nama Lengkap / Nama Akun *
+              Nama Akun *
             </label>
             <input
               type="text"
               required
               value={formNama}
               onChange={(e) => setFormNama(e.target.value)}
-              placeholder="Contoh: Operator SPS Melati Banyudono"
+              placeholder="Contoh: Operator SPS Melati"
               className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-blue-600"
             />
           </div>
 
           <div>
             <label className="block font-semibold text-slate-700 mb-1">
-              Alamat Email *
+              Email *
             </label>
             <input
               type="email"
@@ -556,22 +544,22 @@ export default function PenggunaPage() {
 
           <div>
             <label className="block font-semibold text-slate-700 mb-1">
-              Peran Akun (Role) *
+              Peran *
             </label>
             <select
               value={formRole}
               onChange={(e) => setFormRole(e.target.value as CreatableRole)}
               className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-1 focus:ring-blue-600"
             >
-              <option value="operator_sekolah">Operator Sekolah (TK / KB / SPS / TPA)</option>
-              <option value="admin_kecamatan">Admin Kecamatan (Korwil)</option>
+              <option value="operator_sekolah">Operator Sekolah</option>
+              <option value="admin_kecamatan">Admin Kecamatan</option>
             </select>
           </div>
 
           {formRole === 'admin_kecamatan' && (
             <div>
               <label className="block font-semibold text-slate-700 mb-1">
-                Kecamatan Wilayah Tugas *
+                Kecamatan *
               </label>
               <select
                 value={formKecamatanId}
@@ -616,26 +604,21 @@ export default function PenggunaPage() {
               Batal
             </Button>
             <Button type="submit" variant="primary" size="sm">
-              Buat Akun (Sandi: {DEFAULT_PASSWORD})
+              Simpan Akun
             </Button>
           </div>
         </form>
       </Modal>
 
-      {/* Modal Konfirmasi Reset Password ke 123456 */}
+      {/* Modal Reset Sandi */}
       <Modal
         isOpen={Boolean(resetTargetUser)}
         onClose={() => setResetTargetUser(null)}
-        title="Reset Kata Sandi ke Default"
-        description={
-          resetTargetUser
-            ? `Kembalikan kata sandi akun ${resetTargetUser.nama} (${resetTargetUser.email}) menjadi "${DEFAULT_PASSWORD}"?`
-            : undefined
-        }
+        title="Reset Kata Sandi"
       >
         <div className="space-y-4 text-xs">
           <p className="text-slate-600">
-            Setelah direset, akun akan memakai kata sandi <strong className="font-mono text-slate-900">{DEFAULT_PASSWORD}</strong> dan berstatus password default hingga pengguna menggantinya kembali.
+            Reset kata sandi akun <strong className="text-slate-900">{resetTargetUser?.nama}</strong> ke sandi awal?
           </p>
           <div className="pt-2 flex items-center justify-end gap-2">
             <Button
@@ -653,7 +636,7 @@ export default function PenggunaPage() {
               onClick={handleConfirmResetDefault}
               leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
             >
-              Reset ke {DEFAULT_PASSWORD}
+              Reset Sandi
             </Button>
           </div>
         </div>
