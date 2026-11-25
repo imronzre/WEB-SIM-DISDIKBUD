@@ -5,23 +5,26 @@ import Link from 'next/link';
 import {
   School,
   Search,
-  Filter,
   Plus,
   Pencil,
-  CheckCircle2,
-  AlertCircle,
-  Users,
   MapPin,
   Phone,
   Eye,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Badge, JenjangBadge } from '@/components/ui/Badge';
+import { JenjangBadge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { AppDataStore } from '@/lib/store';
-import { Lembaga, Kecamatan, UserProfile, Jenjang, StatusLembaga } from '@/lib/types';
+import {
+  Lembaga,
+  Kecamatan,
+  UserProfile,
+  Jenjang,
+  StatusLembaga,
+  normalizeRole,
+} from '@/lib/types';
 import { formatDateIndo } from '@/lib/utils';
 
 export default function LembagaPage() {
@@ -53,12 +56,13 @@ export default function LembagaPage() {
   const loadData = () => {
     const user = AppDataStore.getCurrentUser();
     setCurrentUser(user);
+    const role = normalizeRole(user.role);
 
     let l = AppDataStore.getLembagaList();
-    if (user.role === 'kecamatan' && user.kecamatan_id) {
+    if (role === 'admin_kecamatan' && user.kecamatan_id) {
       l = l.filter((item) => item.kecamatan_id === user.kecamatan_id);
       setSelectedKec(user.kecamatan_id);
-    } else if (user.role === 'lembaga' && user.lembaga_id) {
+    } else if (role === 'operator_sekolah' && user.lembaga_id) {
       l = l.filter((item) => item.id === user.lembaga_id);
     }
     setLembagaList(l);
@@ -75,6 +79,8 @@ export default function LembagaPage() {
   }, []);
 
   if (!currentUser) return null;
+
+  const role = normalizeRole(currentUser.role);
 
   // Filtered List
   const filteredList = lembagaList.filter((l) => {
@@ -122,7 +128,7 @@ export default function LembagaPage() {
     setIsModalOpen(true);
   };
 
-  const handleSaveLembaga = (e: React.FormEvent) => {
+  const handleSaveLembaga = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
 
@@ -135,22 +141,31 @@ export default function LembagaPage() {
       return;
     }
 
+    const payload = {
+      id: editingLembaga ? editingLembaga.id : undefined,
+      nama: formNama.trim(),
+      npsn: formNpsn.trim() || null,
+      jenjang: formJenjang,
+      kecamatan_id: formKecamatanId,
+      desa: formDesa.trim(),
+      alamat: formAlamat.trim(),
+      status: formStatus,
+      kontak: formKontak.trim() || null,
+      aktif: formAktif,
+    };
+
     try {
-      AppDataStore.saveLembaga(
-        {
-          id: editingLembaga ? editingLembaga.id : undefined,
-          nama: formNama.trim(),
-          npsn: formNpsn.trim() || null,
-          jenjang: formJenjang,
-          kecamatan_id: formKecamatanId,
-          desa: formDesa.trim(),
-          alamat: formAlamat.trim(),
-          status: formStatus,
-          kontak: formKontak.trim() || null,
-          aktif: formAktif,
-        },
-        currentUser
-      );
+      AppDataStore.saveLembaga(payload, currentUser);
+
+      // Kirim juga ke API Supabase di background
+      fetch('/api/lembaga', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...payload,
+          id: payload.id && !payload.id.startsWith('lem-') ? payload.id : undefined,
+        }),
+      }).catch((err) => console.warn('Sync API lembaga:', err));
 
       setIsModalOpen(false);
       loadData();
@@ -159,10 +174,10 @@ export default function LembagaPage() {
     }
   };
 
-  const canAdd = currentUser.role === 'admin';
+  const canAdd = role === 'admin_dinas';
   const canEdit =
-    currentUser.role === 'admin' ||
-    (currentUser.role === 'lembaga' && currentUser.lembaga_id);
+    role === 'admin_dinas' ||
+    (role === 'operator_sekolah' && Boolean(currentUser.lembaga_id));
 
   return (
     <AppLayout
@@ -212,7 +227,7 @@ export default function LembagaPage() {
             </div>
 
             {/* Filter Kecamatan */}
-            {currentUser.role === 'admin' && (
+            {role === 'admin_dinas' && (
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                   Kecamatan
@@ -269,11 +284,10 @@ export default function LembagaPage() {
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <JenjangBadge jenjang={lem.jenjang} />
                   <span
-                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                      lem.status === 'Negeri'
+                    className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${lem.status === 'Negeri'
                         ? 'bg-blue-50 text-blue-700 border border-blue-200'
                         : 'bg-slate-100 text-slate-700 border border-slate-200'
-                    }`}
+                      }`}
                   >
                     {lem.status}
                   </span>
@@ -335,7 +349,7 @@ export default function LembagaPage() {
                   </Button>
                 </Link>
 
-                {canEdit && (currentUser.role === 'admin' || currentUser.lembaga_id === lem.id) && (
+                {canEdit && (role === 'admin_dinas' || currentUser.lembaga_id === lem.id) && (
                   <Button
                     variant="ghost"
                     size="sm"
@@ -399,7 +413,7 @@ export default function LembagaPage() {
                 Jenjang *
               </label>
               <select
-                disabled={currentUser.role === 'lembaga'}
+                disabled={role === 'operator_sekolah'}
                 value={formJenjang}
                 onChange={(e) => setFormJenjang(e.target.value as Jenjang)}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-1 focus:ring-blue-600"
@@ -415,7 +429,7 @@ export default function LembagaPage() {
                 Status Lembaga *
               </label>
               <select
-                disabled={currentUser.role === 'lembaga'}
+                disabled={role === 'operator_sekolah'}
                 value={formStatus}
                 onChange={(e) => setFormStatus(e.target.value as StatusLembaga)}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-1 focus:ring-blue-600"
@@ -432,7 +446,7 @@ export default function LembagaPage() {
                 Kecamatan *
               </label>
               <select
-                disabled={currentUser.role === 'lembaga'}
+                disabled={role === 'operator_sekolah'}
                 value={formKecamatanId}
                 onChange={(e) => setFormKecamatanId(e.target.value)}
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-1 focus:ring-blue-600"
