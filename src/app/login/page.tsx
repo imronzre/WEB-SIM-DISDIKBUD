@@ -2,219 +2,187 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { School, Lock, Mail, ArrowRight, ShieldCheck, UserCheck } from 'lucide-react';
+import { Lock, Mail, ShieldCheck, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { Card, CardContent } from '@/components/ui/Card';
-import { AppDataStore } from '@/lib/store';
-import { createClient } from '@/lib/supabase/client';
-import { UserProfile } from '@/lib/types';
+import { AppDataStore, DEMO_PROFILES } from '@/lib/store';
+import { isSupabaseConfigured, createClient } from '@/lib/supabase/client';
+import { normalizeRole } from '@/lib/types';
+
+type LoginRole = 'admin_dinas' | 'admin_kecamatan' | 'operator_sekolah';
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState('admin.dinas@boyolali.go.id');
-  const [password, setPassword] = useState('AdminDinas123!');
-  const [loading, setLoading] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<LoginRole>('admin_dinas');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  // 3 Akun Uji Coba Resmi Sesuai Permintaan
-  const testAccounts = [
-    {
-      label: 'Admin Dinas',
-      role: 'admin_dinas',
-      email: 'admin.dinas@boyolali.go.id',
-      password: 'AdminDinas123!',
-      color: 'bg-rose-50 text-rose-800 border-rose-200 hover:bg-rose-100',
-    },
-    {
-      label: 'Admin Kecamatan',
-      role: 'admin_kecamatan',
-      email: 'korwil.boyolali@boyolali.go.id',
-      password: 'Kecamatan123!',
-      color: 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100',
-    },
-    {
-      label: 'Operator Sekolah',
-      role: 'operator_sekolah',
-      email: 'tk.pembina@boyolali.go.id',
-      password: 'Operator123!',
-      color: 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100',
-    },
-  ];
-
-  const handleSelectAccount = (acc: typeof testAccounts[0]) => {
-    setEmail(acc.email);
-    setPassword(acc.password);
-    setErrorMsg('');
-  };
-
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleManualLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
     setErrorMsg('');
 
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !password.trim()) {
+      setErrorMsg('Alamat email dan kata sandi wajib diisi secara manual.');
+      return;
+    }
+
+    setLoading(true);
     try {
-      const supabase = createClient();
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
-        password: password,
+      if (isSupabaseConfigured()) {
+        const supabase = createClient();
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: cleanEmail,
+          password,
+        });
+
+        if (error || !data.user) {
+          setErrorMsg('Email atau kata sandi tidak valid.');
+          setLoading(false);
+          return;
+        }
+
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', data.user.id)
+          .single();
+
+        const resolvedRole = normalizeRole(
+          profile?.role || data.user.user_metadata?.role || 'operator_sekolah'
+        );
+
+        if (resolvedRole !== selectedRole) {
+          await supabase.auth.signOut();
+          setErrorMsg('Peran yang dipilih tidak sesuai dengan hak akses akun ini.');
+          setLoading(false);
+          return;
+        }
+
+        AppDataStore.setCurrentUser({
+          id: data.user.id,
+          email: data.user.email || cleanEmail,
+          nama: profile?.nama || data.user.user_metadata?.nama || cleanEmail,
+          role: resolvedRole,
+          kecamatan_id: profile?.kecamatan_id ?? null,
+          kecamatan_nama: profile?.kecamatan_nama ?? null,
+          lembaga_id: profile?.lembaga_id ?? null,
+          lembaga_nama: profile?.lembaga_nama ?? null,
+        });
+
+        router.push('/dashboard');
+        return;
+      }
+
+      // Fallback lokal jika Supabase belum dikonfigurasi: cocokkan email & role manual
+      const matchedProfile = Object.values(DEMO_PROFILES).find(
+        (p) =>
+          p.email.toLowerCase() === cleanEmail &&
+          normalizeRole(p.role) === selectedRole
+      );
+
+      if (!matchedProfile) {
+        setErrorMsg('Akun tidak ditemukan atau peran tidak sesuai dengan email yang dimasukkan.');
+        setLoading(false);
+        return;
+      }
+
+      AppDataStore.setCurrentUser({
+        ...matchedProfile,
+        role: selectedRole,
       });
-
-      if (authError) {
-        throw new Error(authError.message === 'Invalid login credentials' 
-          ? 'Email atau kata sandi salah. Silakan periksa kembali.' 
-          : authError.message);
-      }
-
-      if (!authData.user) {
-        throw new Error('Sesi tidak valid.');
-      }
-
-      // Ambil data profil dan role resmi dari tabel profiles
-      const { data: profile, error: profileError } = await supabase
-        .from('profiles')
-        .select(`
-          *,
-          kecamatan:kecamatan_id (nama),
-          lembaga:lembaga_id (nama)
-        `)
-        .eq('id', authData.user.id)
-        .single();
-
-      if (profileError || !profile) {
-        // Fallback jika profil belum terlink sempurna
-        const fallbackProfile: UserProfile = {
-          id: authData.user.id,
-          email: authData.user.email || email,
-          nama: authData.user.user_metadata?.nama || 'Petugas',
-          role: authData.user.user_metadata?.role || 'admin_dinas',
-        };
-        AppDataStore.setCurrentUser(fallbackProfile);
-      } else {
-        const fullProfile: UserProfile = {
-          id: profile.id,
-          email: profile.email || email,
-          nama: profile.nama,
-          role: profile.role,
-          kecamatan_id: profile.kecamatan_id,
-          kecamatan_nama: profile.kecamatan?.nama || null,
-          lembaga_id: profile.lembaga_id,
-          lembaga_nama: profile.lembaga?.nama || null,
-        };
-        AppDataStore.setCurrentUser(fullProfile);
-      }
-
-      // Redirect ke dashboard
-      window.location.href = '/dashboard';
-    } catch (err: any) {
-      setErrorMsg(err.message || 'Login gagal. Periksa koneksi atau kredensial Anda.');
+      router.push('/dashboard');
+    } catch {
+      setErrorMsg('Terjadi kesalahan saat memproses login.');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        {/* Header Branding */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-500/30 mb-4 ring-8 ring-blue-500/10">
-            <School className="w-8 h-8" />
-          </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">
-            SIM-PAUDNI BOYOLALI
-          </h1>
-          <p className="text-xs text-blue-200/80 mt-1 uppercase tracking-widest font-semibold">
-            Dinas Pendidikan dan Kebudayaan Kab. Boyolali
-          </p>
-          <p className="text-xs text-slate-400 mt-2">
-            Sistem Informasi Data Lembaga & Peserta Didik PAUD, TK, dan Posyandu
-          </p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex flex-col items-center justify-center p-4">
+      <div className="text-center text-white mb-6">
+        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-blue-200 text-xs font-semibold mb-2">
+          <ShieldCheck className="w-4 h-4" />
+          SIM-PAUDNI BOYOLALI
         </div>
+        <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight">
+          DINAS PENDIDIKAN DAN KEBUDAYAAN KAB. BOYOLALI
+        </h1>
+        <p className="text-xs text-blue-200/80 mt-1">
+          Sistem Informasi Data Lembaga &amp; Peserta Didik TK, KB, SPS, dan TPA
+        </p>
+      </div>
 
-        {/* Login Card */}
-        <Card className="border-slate-800 bg-white/95 backdrop-blur shadow-2xl">
-          <CardContent className="p-6">
-            {errorMsg && (
-              <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs">
-                {errorMsg}
-              </div>
-            )}
-
-            <form onSubmit={handleLogin} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Alamat Email Akun
-                </label>
-                <div className="relative">
-                  <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                  <input
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="nama@boyolali.go.id"
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  Kata Sandi (Password)
-                </label>
-                <div className="relative">
-                  <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                  <input
-                    type="password"
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
-                  />
-                </div>
-              </div>
-
-              <Button
-                type="submit"
-                variant="primary"
-                size="md"
-                isLoading={loading}
-                className="w-full mt-2"
-                rightIcon={<ArrowRight className="w-4 h-4" />}
-              >
-                Masuk ke Sistem
-              </Button>
-            </form>
-
-            {/* Quick Fill Test Accounts */}
-            <div className="mt-6 pt-5 border-t border-slate-100">
-              <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-wider text-center mb-3">
-                Pilih Akun Uji Coba Langsung (Supabase Auth)
-              </p>
-              <div className="grid grid-cols-3 gap-2">
-                {testAccounts.map((acc) => (
-                  <button
-                    key={acc.role}
-                    type="button"
-                    onClick={() => handleSelectAccount(acc)}
-                    className={`p-2.5 text-center rounded-xl border transition flex flex-col items-center justify-center ${acc.color}`}
-                  >
-                    <UserCheck className="w-3.5 h-3.5 mb-1" />
-                    <p className="text-xs font-bold leading-tight">{acc.label}</p>
-                    <p className="text-[10px] opacity-75 mt-0.5 font-mono">1-Klik Isi</p>
-                  </button>
-                ))}
-              </div>
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-6 sm:p-7">
+        <form onSubmit={handleManualLogin} className="space-y-4 text-xs">
+          {errorMsg && (
+            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{errorMsg}</span>
             </div>
-          </CardContent>
-        </Card>
+          )}
 
-        {/* Security Notice */}
-        <div className="mt-6 flex items-center justify-center gap-2 text-xs text-slate-400">
-          <ShieldCheck className="w-4 h-4 text-emerald-400" />
-          <span>Autentikasi Terverifikasi Resmi dengan Supabase Auth</span>
-        </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Pilih Peran Pengguna (Role) *
+            </label>
+            <select
+              value={selectedRole}
+              onChange={(e) => setSelectedRole(e.target.value as LoginRole)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white text-slate-800 font-medium focus:ring-1 focus:ring-blue-600 outline-none"
+            >
+              <option value="admin_dinas">Admin Dinas</option>
+              <option value="admin_kecamatan">Admin Kecamatan</option>
+              <option value="operator_sekolah">Operator Sekolah</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Alamat Email Akun *
+            </label>
+            <div className="relative">
+              <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="email"
+                autoComplete="off"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Masukkan email sesuai peran"
+                className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-slate-800 focus:ring-1 focus:ring-blue-600 outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Kata Sandi (Password) *
+            </label>
+            <div className="relative">
+              <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Masukkan kata sandi"
+                className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-slate-800 focus:ring-1 focus:ring-blue-600 outline-none"
+              />
+            </div>
+          </div>
+
+          <Button
+            type="submit"
+            variant="primary"
+            size="md"
+            disabled={loading}
+            className="w-full justify-center mt-2"
+          >
+            {loading ? 'Memverifikasi Akun...' : 'Masuk ke Sistem →'}
+          </Button>
+        </form>
       </div>
     </div>
   );
