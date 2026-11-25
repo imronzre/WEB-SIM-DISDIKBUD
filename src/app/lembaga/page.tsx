@@ -258,9 +258,10 @@ export default function LembagaPage() {
                 className="w-full text-xs border border-slate-300 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:ring-1 focus:ring-blue-600 outline-none"
               >
                 <option value="all">Semua Jenjang</option>
-                <option value="TK">Taman Kanak-Kanak (TK)</option>
-                <option value="PAUD">PAUD / Kelompok Bermain</option>
-                <option value="Posyandu">Posyandu</option>
+                <option value="TK">TK (Taman Kanak-Kanak)</option>
+                <option value="KB">KB (Kelompok Bermain)</option>
+                <option value="SPS">SPS (Satuan PAUD Sejenis)</option>
+                <option value="TPA">TPA (Taman Penitipan Anak)</option>
               </select>
             </div>
           </div>
@@ -285,8 +286,8 @@ export default function LembagaPage() {
                   <JenjangBadge jenjang={lem.jenjang} />
                   <span
                     className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${lem.status === 'Negeri'
-                        ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                        : 'bg-slate-100 text-slate-700 border border-slate-200'
+                      ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                      : 'bg-slate-100 text-slate-700 border border-slate-200'
                       }`}
                   >
                     {lem.status}

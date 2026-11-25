@@ -39,8 +39,11 @@ export const JenjangBadge: React.FC<{ jenjang: Jenjang }> = ({ jenjang }) => {
   if (jenjang === 'TK') {
     return <Badge variant="info">TK</Badge>;
   }
-  if (jenjang === 'PAUD') {
-    return <Badge variant="purple">PAUD</Badge>;
+  if (jenjang === 'KB') {
+    return <Badge variant="purple">KB</Badge>;
   }
-  return <Badge variant="warning">Posyandu</Badge>;
+  if (jenjang === 'SPS') {
+    return <Badge variant="warning">SPS</Badge>;
+  }
+  return <Badge variant="success">TPA</Badge>;
 };

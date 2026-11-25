@@ -6,7 +6,7 @@ export type Role =
   | 'kecamatan'
   | 'lembaga';
 
-export type Jenjang = 'TK' | 'PAUD' | 'Posyandu';
+export type Jenjang = 'TK' | 'KB' | 'SPS' | 'TPA';
 
 export type StatusLembaga = 'Negeri' | 'Swasta';
 

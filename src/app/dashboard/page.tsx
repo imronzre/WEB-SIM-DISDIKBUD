@@ -9,9 +9,6 @@ import {
   CheckCircle2,
   AlertCircle,
   FileText,
-  TrendingUp,
-  MapPin,
-  Calendar,
   ArrowRight,
   Filter,
 } from 'lucide-react';
@@ -20,8 +17,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge, JenjangBadge } from '@/components/ui/Badge';
 import { AppDataStore } from '@/lib/store';
-import { Lembaga, Siswa, UserProfile, Kecamatan } from '@/lib/types';
-import { formatDateIndo, formatDateTimeIndo } from '@/lib/utils';
+import { Lembaga, UserProfile, Kecamatan, normalizeRole } from '@/lib/types';
+import { formatDateIndo } from '@/lib/utils';
 
 export default function DashboardPage() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -29,8 +26,9 @@ export default function DashboardPage() {
     totalLembaga: 0,
     totalSiswa: 0,
     siswaTK: 0,
-    siswaPAUD: 0,
-    siswaPosyandu: 0,
+    siswaKB: 0,
+    siswaSPS: 0,
+    siswaTPA: 0,
     lembagaSudahUnggah: 0,
     lembagaBelumUnggah: 0,
     persenSudahUnggah: 0,
@@ -42,14 +40,15 @@ export default function DashboardPage() {
   useEffect(() => {
     const user = AppDataStore.getCurrentUser();
     setCurrentUser(user);
+    const role = normalizeRole(user.role);
 
     const s = AppDataStore.getStats(user);
     setStats(s);
 
     let l = AppDataStore.getLembagaList();
-    if (user.role === 'kecamatan' && user.kecamatan_id) {
+    if (role === 'admin_kecamatan' && user.kecamatan_id) {
       l = l.filter((item) => item.kecamatan_id === user.kecamatan_id);
-    } else if (user.role === 'lembaga' && user.lembaga_id) {
+    } else if (role === 'operator_sekolah' && user.lembaga_id) {
       l = l.filter((item) => item.id === user.lembaga_id);
     }
     setLembagaList(l);
@@ -58,6 +57,8 @@ export default function DashboardPage() {
   }, []);
 
   if (!currentUser) return null;
+
+  const role = normalizeRole(currentUser.role);
 
   const filteredLembaga = lembagaList.filter((item) => {
     if (selectedKec !== 'all' && item.kecamatan_id !== selectedKec) return false;
@@ -68,11 +69,11 @@ export default function DashboardPage() {
     <AppLayout
       title="Dashboard Rekapitulasi Data"
       subtitle={
-        currentUser.role === 'admin'
+        role === 'admin_dinas'
           ? 'Ringkasan data peserta didik dan kepatuhan unggah lembaga se-Kabupaten Boyolali'
-          : currentUser.role === 'kecamatan'
-          ? `Ringkasan data wilayah Korwil Kecamatan ${currentUser.kecamatan_nama}`
-          : `Ringkasan data peserta didik ${currentUser.lembaga_nama}`
+          : role === 'admin_kecamatan'
+            ? `Ringkasan data wilayah Korwil Kecamatan ${currentUser.kecamatan_nama}`
+            : `Ringkasan data peserta didik ${currentUser.lembaga_nama}`
       }
     >
       {/* Overview Cards */}
@@ -88,7 +89,7 @@ export default function DashboardPage() {
                 {stats.totalSiswa.toLocaleString('id-ID')}
               </h3>
               <p className="text-[11px] text-blue-700 font-medium mt-1">
-                TK: {stats.siswaTK} • PAUD: {stats.siswaPAUD} • Posyandu: {stats.siswaPosyandu}
+                TK: {stats.siswaTK} • KB: {stats.siswaKB} • SPS: {stats.siswaSPS} • TPA: {stats.siswaTPA}
               </p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-md shadow-blue-500/20">
@@ -108,7 +109,7 @@ export default function DashboardPage() {
                 {stats.totalLembaga}
               </h3>
               <p className="text-[11px] text-indigo-600 mt-1">
-                TK, Kelompok Bermain, Posyandu
+                TK, KB, SPS, dan TPA
               </p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-500/20">
@@ -161,8 +162,8 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Quick Action CTA for Lembaga */}
-      {currentUser.role !== 'kecamatan' && (
+      {/* Quick Action CTA for Lembaga & Dinas */}
+      {role !== 'admin_kecamatan' && (
         <div className="mb-6 bg-gradient-to-r from-blue-700 to-indigo-800 rounded-2xl p-6 text-white shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 text-blue-100 text-xs font-semibold mb-2">
@@ -204,7 +205,7 @@ export default function DashboardPage() {
                 </p>
               </div>
 
-              {currentUser.role === 'admin' && (
+              {role === 'admin_dinas' && (
                 <div className="flex items-center gap-2">
                   <Filter className="w-3.5 h-3.5 text-slate-400" />
                   <select
@@ -297,16 +298,15 @@ export default function DashboardPage() {
             <CardContent className="space-y-4">
               <div>
                 <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
-                  <span>Taman Kanak-Kanak (TK)</span>
+                  <span>TK (Taman Kanak-Kanak)</span>
                   <span>{stats.siswaTK} Siswa</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2.5">
                   <div
                     className="bg-blue-600 h-2.5 rounded-full"
                     style={{
-                      width: `${
-                        stats.totalSiswa > 0 ? (stats.siswaTK / stats.totalSiswa) * 100 : 0
-                      }%`,
+                      width: `${stats.totalSiswa > 0 ? (stats.siswaTK / stats.totalSiswa) * 100 : 0
+                        }%`,
                     }}
                   ></div>
                 </div>
@@ -314,18 +314,15 @@ export default function DashboardPage() {
 
               <div>
                 <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
-                  <span>Pendidikan Anak Usia Dini (PAUD)</span>
-                  <span>{stats.siswaPAUD} Siswa</span>
+                  <span>KB (Kelompok Bermain)</span>
+                  <span>{stats.siswaKB} Siswa</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2.5">
                   <div
                     className="bg-purple-600 h-2.5 rounded-full"
                     style={{
-                      width: `${
-                        stats.totalSiswa > 0
-                          ? (stats.siswaPAUD / stats.totalSiswa) * 100
-                          : 0
-                      }%`,
+                      width: `${stats.totalSiswa > 0 ? (stats.siswaKB / stats.totalSiswa) * 100 : 0
+                        }%`,
                     }}
                   ></div>
                 </div>
@@ -333,18 +330,31 @@ export default function DashboardPage() {
 
               <div>
                 <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
-                  <span>Pos Pelayanan Terpadu (Posyandu)</span>
-                  <span>{stats.siswaPosyandu} Anak</span>
+                  <span>SPS (Satuan PAUD Sejenis)</span>
+                  <span>{stats.siswaSPS} Siswa</span>
                 </div>
                 <div className="w-full bg-slate-100 rounded-full h-2.5">
                   <div
                     className="bg-amber-500 h-2.5 rounded-full"
                     style={{
-                      width: `${
-                        stats.totalSiswa > 0
-                          ? (stats.siswaPosyandu / stats.totalSiswa) * 100
-                          : 0
-                      }%`,
+                      width: `${stats.totalSiswa > 0 ? (stats.siswaSPS / stats.totalSiswa) * 100 : 0
+                        }%`,
+                    }}
+                  ></div>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex justify-between text-xs font-semibold text-slate-700 mb-1">
+                  <span>TPA (Taman Penitipan Anak)</span>
+                  <span>{stats.siswaTPA} Siswa</span>
+                </div>
+                <div className="w-full bg-slate-100 rounded-full h-2.5">
+                  <div
+                    className="bg-emerald-600 h-2.5 rounded-full"
+                    style={{
+                      width: `${stats.totalSiswa > 0 ? (stats.siswaTPA / stats.totalSiswa) * 100 : 0
+                        }%`,
                     }}
                   ></div>
                 </div>

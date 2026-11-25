@@ -5,24 +5,24 @@ import { useSearchParams } from 'next/navigation';
 import {
   Users,
   Search,
-  Filter,
   Plus,
   Pencil,
   Trash2,
   Download,
-  AlertTriangle,
-  CheckCircle2,
-  School,
-  MapPin,
-  Calendar,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Badge, JenjangBadge } from '@/components/ui/Badge';
+import { JenjangBadge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { AppDataStore } from '@/lib/store';
-import { Siswa, Lembaga, Kecamatan, UserProfile, Jenjang } from '@/lib/types';
+import {
+  Siswa,
+  Lembaga,
+  Kecamatan,
+  UserProfile,
+  normalizeRole,
+} from '@/lib/types';
 import { formatDateIndo, calculateAge } from '@/lib/utils';
 import { exportSiswaToExcel } from '@/lib/excel';
 
@@ -63,12 +63,13 @@ function SiswaContent() {
   const loadData = () => {
     const user = AppDataStore.getCurrentUser();
     setCurrentUser(user);
+    const role = normalizeRole(user.role);
 
     let l = AppDataStore.getLembagaList();
-    if (user.role === 'kecamatan' && user.kecamatan_id) {
+    if (role === 'admin_kecamatan' && user.kecamatan_id) {
       l = l.filter((item) => item.kecamatan_id === user.kecamatan_id);
       setSelectedKecamatan(user.kecamatan_id);
-    } else if (user.role === 'lembaga' && user.lembaga_id) {
+    } else if (role === 'operator_sekolah' && user.lembaga_id) {
       l = l.filter((item) => item.id === user.lembaga_id);
       setSelectedLembaga(user.lembaga_id);
     }
@@ -84,14 +85,16 @@ function SiswaContent() {
 
   if (!currentUser) return null;
 
+  const role = normalizeRole(currentUser.role);
+
   // Filter Logic
   const filteredSiswa = siswaList.filter((s) => {
     // Role guard: kecamatan only sees own kecamatan
-    if (currentUser.role === 'kecamatan' && currentUser.kecamatan_id) {
+    if (role === 'admin_kecamatan' && currentUser.kecamatan_id) {
       if (s.kecamatan_id !== currentUser.kecamatan_id) return false;
     }
     // Role guard: lembaga only sees own lembaga
-    if (currentUser.role === 'lembaga' && currentUser.lembaga_id) {
+    if (role === 'operator_sekolah' && currentUser.lembaga_id) {
       if (s.lembaga_id !== currentUser.lembaga_id) return false;
     }
 
@@ -129,7 +132,7 @@ function SiswaContent() {
     setFormNamaAyah('');
     setFormNamaIbu('');
     setFormLembagaId(
-      currentUser.role === 'lembaga' && currentUser.lembaga_id
+      role === 'operator_sekolah' && currentUser.lembaga_id
         ? currentUser.lembaga_id
         : lembagaList[0]?.id || ''
     );
@@ -221,12 +224,12 @@ function SiswaContent() {
     URL.revokeObjectURL(url);
   };
 
-  const canModify = currentUser.role === 'admin' || currentUser.role === 'lembaga';
+  const canModify = role === 'admin_dinas' || role === 'operator_sekolah';
 
   return (
     <AppLayout
       title="Manajemen Peserta Didik"
-      subtitle="Kelola, cari, dan telusuri data siswa jenjang TK, PAUD, dan Posyandu"
+      subtitle="Kelola, cari, dan telusuri data siswa jenjang TK, KB, SPS, dan TPA"
       breadcrumbs={[{ label: 'Data Siswa' }]}
     >
       {/* Action Bar & Quick Stats */}
@@ -285,7 +288,7 @@ function SiswaContent() {
             </div>
 
             {/* Filter Kecamatan (Admin Only) */}
-            {currentUser.role === 'admin' && (
+            {role === 'admin_dinas' && (
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                   Kecamatan
@@ -310,7 +313,7 @@ function SiswaContent() {
             )}
 
             {/* Filter Lembaga (Admin & Kecamatan) */}
-            {currentUser.role !== 'lembaga' && (
+            {role !== 'operator_sekolah' && (
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                   Lembaga
@@ -352,9 +355,10 @@ function SiswaContent() {
                 className="w-full text-xs border border-slate-300 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:ring-1 focus:ring-blue-600 outline-none"
               >
                 <option value="all">Semua Jenjang</option>
-                <option value="TK">Taman Kanak-Kanak (TK)</option>
-                <option value="PAUD">PAUD / KB</option>
-                <option value="Posyandu">Posyandu</option>
+                <option value="TK">TK (Taman Kanak-Kanak)</option>
+                <option value="KB">KB (Kelompok Bermain)</option>
+                <option value="SPS">SPS (Satuan PAUD Sejenis)</option>
+                <option value="TPA">TPA (Taman Penitipan Anak)</option>
               </select>
             </div>
           </div>
@@ -510,7 +514,7 @@ function SiswaContent() {
           )}
 
           {/* Pilih Lembaga (Jika Admin) */}
-          {currentUser.role === 'admin' ? (
+          {role === 'admin_dinas' ? (
             <div>
               <label className="block font-semibold text-slate-700 mb-1">
                 Lembaga Naungan *

@@ -2,20 +2,20 @@
 
 import React, { useState, useEffect } from 'react';
 import {
-  FileText,
   Printer,
   Download,
-  Filter,
-  School,
-  MapPin,
-  Calendar,
-  Users,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
+import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { AppDataStore } from '@/lib/store';
-import { Siswa, Lembaga, Kecamatan, UserProfile } from '@/lib/types';
+import {
+  Siswa,
+  Lembaga,
+  Kecamatan,
+  UserProfile,
+  normalizeRole,
+} from '@/lib/types';
 import { formatDateIndo, calculateAge } from '@/lib/utils';
 import { exportSiswaToExcel } from '@/lib/excel';
 
@@ -33,12 +33,13 @@ export default function LaporanPage() {
   useEffect(() => {
     const user = AppDataStore.getCurrentUser();
     setCurrentUser(user);
+    const role = normalizeRole(user.role);
 
     let l = AppDataStore.getLembagaList();
-    if (user.role === 'kecamatan' && user.kecamatan_id) {
+    if (role === 'admin_kecamatan' && user.kecamatan_id) {
       l = l.filter((item) => item.kecamatan_id === user.kecamatan_id);
       setFilterKecamatan(user.kecamatan_id);
-    } else if (user.role === 'lembaga' && user.lembaga_id) {
+    } else if (role === 'operator_sekolah' && user.lembaga_id) {
       l = l.filter((item) => item.id === user.lembaga_id);
       setFilterLembaga(user.lembaga_id);
     }
@@ -50,12 +51,14 @@ export default function LaporanPage() {
 
   if (!currentUser) return null;
 
+  const role = normalizeRole(currentUser.role);
+
   // Filtered Siswa
   const filteredSiswa = siswaList.filter((s) => {
-    if (currentUser.role === 'kecamatan' && currentUser.kecamatan_id) {
+    if (role === 'admin_kecamatan' && currentUser.kecamatan_id) {
       if (s.kecamatan_id !== currentUser.kecamatan_id) return false;
     }
-    if (currentUser.role === 'lembaga' && currentUser.lembaga_id) {
+    if (role === 'operator_sekolah' && currentUser.lembaga_id) {
       if (s.lembaga_id !== currentUser.lembaga_id) return false;
     }
 
@@ -107,7 +110,7 @@ export default function LaporanPage() {
           <CardContent className="p-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {/* Kecamatan Filter */}
-              {currentUser.role === 'admin' && (
+              {role === 'admin_dinas' && (
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                     Wilayah Kecamatan
@@ -131,7 +134,7 @@ export default function LaporanPage() {
               )}
 
               {/* Lembaga Filter */}
-              {currentUser.role !== 'lembaga' && (
+              {role !== 'operator_sekolah' && (
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                     Lembaga Pendidikan
@@ -167,9 +170,10 @@ export default function LaporanPage() {
                   className="w-full text-xs border border-slate-300 rounded-lg px-3 py-1.5 bg-white text-slate-700 outline-none focus:ring-1 focus:ring-blue-600"
                 >
                   <option value="all">Semua Jenjang</option>
-                  <option value="TK">Taman Kanak-Kanak (TK)</option>
-                  <option value="PAUD">PAUD / KB</option>
-                  <option value="Posyandu">Posyandu</option>
+                  <option value="TK">TK (Taman Kanak-Kanak)</option>
+                  <option value="KB">KB (Kelompok Bermain)</option>
+                  <option value="SPS">SPS (Satuan PAUD Sejenis)</option>
+                  <option value="TPA">TPA (Taman Penitipan Anak)</option>
                 </select>
               </div>
             </div>

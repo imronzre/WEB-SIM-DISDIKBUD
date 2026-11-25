@@ -8,7 +8,6 @@ import {
   ActivityLog,
   UserProfile,
   ParsedExcelRow,
-  Jenjang,
   normalizeRole,
 } from './types';
 import { isSupabaseConfigured, createClient } from './supabase/client';
@@ -57,9 +56,9 @@ export const INITIAL_LEMBAGA: Lembaga[] = [
   },
   {
     id: 'lem-2',
-    nama: 'PAUD Permata Hati Mojosongo',
+    nama: 'KB Permata Hati Mojosongo',
     npsn: '69921002',
-    jenjang: 'PAUD',
+    jenjang: 'KB',
     kecamatan_id: 'kec-mojosongo',
     kecamatan_nama: 'Mojosongo',
     desa: 'Kemiri',
@@ -67,14 +66,14 @@ export const INITIAL_LEMBAGA: Lembaga[] = [
     status: 'Swasta',
     kontak: '081234567890',
     aktif: true,
-    total_siswa: 3,
+    total_siswa: 2,
     last_upload: '2026-11-21T09:15:00Z',
   },
   {
     id: 'lem-3',
-    nama: 'Posyandu Melati I Banyudono',
+    nama: 'SPS Melati I Banyudono',
     npsn: null,
-    jenjang: 'Posyandu',
+    jenjang: 'SPS',
     kecamatan_id: 'kec-banyudono',
     kecamatan_nama: 'Banyudono',
     desa: 'Dukuh',
@@ -82,14 +81,14 @@ export const INITIAL_LEMBAGA: Lembaga[] = [
     status: 'Swasta',
     kontak: '085712348899',
     aktif: true,
-    total_siswa: 2,
+    total_siswa: 1,
     last_upload: null,
   },
   {
     id: 'lem-4',
-    nama: 'TK Aisyiyah BA Ngemplak',
+    nama: 'TPA Ceria Ngemplak',
     npsn: '20339012',
-    jenjang: 'TK',
+    jenjang: 'TPA',
     kecamatan_id: 'kec-ngemplak',
     kecamatan_nama: 'Ngemplak',
     desa: 'Gagaksipat',
@@ -97,7 +96,7 @@ export const INITIAL_LEMBAGA: Lembaga[] = [
     status: 'Swasta',
     kontak: '0271-789012',
     aktif: true,
-    total_siswa: 3,
+    total_siswa: 0,
     last_upload: '2026-11-19T10:00:00Z',
   },
 ];
@@ -176,8 +175,8 @@ export const INITIAL_SISWA: Siswa[] = [
     nama_ayah: 'Agus Wahyudi',
     nama_ibu: 'Tri Handayani',
     lembaga_id: 'lem-2',
-    lembaga_nama: 'PAUD Permata Hati Mojosongo',
-    jenjang: 'PAUD',
+    lembaga_nama: 'KB Permata Hati Mojosongo',
+    jenjang: 'KB',
     kecamatan_id: 'kec-mojosongo',
     kecamatan_nama: 'Mojosongo',
     created_at: '2026-11-21T09:15:00Z',
@@ -192,8 +191,8 @@ export const INITIAL_SISWA: Siswa[] = [
     nama_ayah: 'Dwi Prasetyo',
     nama_ibu: 'Kartika Sari',
     lembaga_id: 'lem-2',
-    lembaga_nama: 'PAUD Permata Hati Mojosongo',
-    jenjang: 'PAUD',
+    lembaga_nama: 'KB Permata Hati Mojosongo',
+    jenjang: 'KB',
     kecamatan_id: 'kec-mojosongo',
     kecamatan_nama: 'Mojosongo',
     created_at: '2026-11-21T09:15:00Z',
@@ -208,8 +207,8 @@ export const INITIAL_SISWA: Siswa[] = [
     nama_ayah: 'Suryanto',
     nama_ibu: 'Marwah',
     lembaga_id: 'lem-3',
-    lembaga_nama: 'Posyandu Melati I Banyudono',
-    jenjang: 'Posyandu',
+    lembaga_nama: 'SPS Melati I Banyudono',
+    jenjang: 'SPS',
     kecamatan_id: 'kec-banyudono',
     kecamatan_nama: 'Banyudono',
     created_at: '2026-11-18T11:00:00Z',
@@ -222,7 +221,7 @@ export const DEMO_PROFILES: Record<string, UserProfile> = {
     id: 'usr-admin',
     email: 'admin@boyolali.go.id',
     nama: 'Admin Dinas PAUDNI',
-    role: 'admin',
+    role: 'admin_dinas',
     kecamatan_id: null,
     kecamatan_nama: null,
     lembaga_id: null,
@@ -232,7 +231,7 @@ export const DEMO_PROFILES: Record<string, UserProfile> = {
     id: 'usr-kec-boyolali',
     email: 'kec.boyolali@boyolali.go.id',
     nama: 'Petugas Korwil Kec. Boyolali',
-    role: 'kecamatan',
+    role: 'admin_kecamatan',
     kecamatan_id: 'kec-boyolali',
     kecamatan_nama: 'Boyolali',
     lembaga_id: null,
@@ -242,7 +241,7 @@ export const DEMO_PROFILES: Record<string, UserProfile> = {
     id: 'usr-lem-1',
     email: 'tk.pembina@boyolali.go.id',
     nama: 'Operator TK Negeri Pembina',
-    role: 'lembaga',
+    role: 'operator_sekolah',
     kecamatan_id: 'kec-boyolali',
     kecamatan_nama: 'Boyolali',
     lembaga_id: 'lem-1',
@@ -320,7 +319,6 @@ export class AppDataStore {
     const kecList = this.getKecamatan();
     const kec = kecList.find((k) => k.id === data.kecamatan_id);
 
-    // Sync ke Supabase di background
     if (isSupabaseConfigured()) {
       try {
         const supabase = createClient();
@@ -428,7 +426,6 @@ export class AppDataStore {
     const list = loadFromStorage<Siswa[]>('siswa', INITIAL_SISWA);
     const lem = this.getLembagaById(data.lembaga_id || '');
 
-    // Sync ke Supabase di background
     if (isSupabaseConfigured() && data.lembaga_id) {
       try {
         const supabase = createClient();
@@ -612,7 +609,6 @@ export class AppDataStore {
       user
     );
 
-    // Call server-side API bulk route if online
     if (typeof window !== 'undefined') {
       fetch('/api/siswa/bulk', {
         method: 'POST',
@@ -661,7 +657,6 @@ export class AppDataStore {
     list.unshift(newLog);
     saveToStorage('activity_logs', list.slice(0, 100));
 
-    // Background push ke Supabase activity_log
     if (isSupabaseConfigured()) {
       try {
         const supabase = createClient();
@@ -679,13 +674,14 @@ export class AppDataStore {
   }
 
   static getStats(user: UserProfile) {
+    const role = normalizeRole(user.role);
     let lembagaList = this.getLembagaList();
     let siswaList = this.getSiswaList();
 
-    if (user.role === 'kecamatan' && user.kecamatan_id) {
+    if (role === 'admin_kecamatan' && user.kecamatan_id) {
       lembagaList = lembagaList.filter((l) => l.kecamatan_id === user.kecamatan_id);
       siswaList = siswaList.filter((s) => s.kecamatan_id === user.kecamatan_id);
-    } else if (user.role === 'lembaga' && user.lembaga_id) {
+    } else if (role === 'operator_sekolah' && user.lembaga_id) {
       lembagaList = lembagaList.filter((l) => l.id === user.lembaga_id);
       siswaList = siswaList.filter((s) => s.lembaga_id === user.lembaga_id);
     }
@@ -693,8 +689,9 @@ export class AppDataStore {
     const totalLembaga = lembagaList.length;
     const totalSiswa = siswaList.length;
     const siswaTK = siswaList.filter((s) => s.jenjang === 'TK').length;
-    const siswaPAUD = siswaList.filter((s) => s.jenjang === 'PAUD').length;
-    const siswaPosyandu = siswaList.filter((s) => s.jenjang === 'Posyandu').length;
+    const siswaKB = siswaList.filter((s) => s.jenjang === 'KB').length;
+    const siswaSPS = siswaList.filter((s) => s.jenjang === 'SPS').length;
+    const siswaTPA = siswaList.filter((s) => s.jenjang === 'TPA').length;
 
     const lembagaSudahUnggah = lembagaList.filter((l) => Boolean(l.last_upload)).length;
     const lembagaBelumUnggah = totalLembaga - lembagaSudahUnggah;
@@ -703,8 +700,9 @@ export class AppDataStore {
       totalLembaga,
       totalSiswa,
       siswaTK,
-      siswaPAUD,
-      siswaPosyandu,
+      siswaKB,
+      siswaSPS,
+      siswaTPA,
       lembagaSudahUnggah,
       lembagaBelumUnggah,
       persenSudahUnggah: totalLembaga > 0 ? Math.round((lembagaSudahUnggah / totalLembaga) * 100) : 0,
