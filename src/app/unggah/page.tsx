@@ -32,6 +32,40 @@ import {
 } from '@/lib/types';
 import { formatDateTimeIndo } from '@/lib/utils';
 
+function getFallbackSchoolForOperator(user: UserProfile): {
+  id: string;
+  nama: string;
+  kecamatan_id: string;
+  kecamatan_nama: string;
+} | null {
+  const email = (user.email || '').trim().toLowerCase();
+  const namaAkun = (user.nama || '').trim().toLowerCase();
+
+  if (user.lembaga_nama) {
+    return {
+      id: user.lembaga_id || `lem-${email.replace(/[^a-z0-9]/g, '-') || 'sekolah'}`,
+      nama: user.lembaga_nama.trim(),
+      kecamatan_id: user.kecamatan_id || 'kec-ampel',
+      kecamatan_nama: user.kecamatan_nama || 'Ampel',
+    };
+  }
+
+  if (
+    email.includes('ampel') ||
+    namaAkun.includes('ampel') ||
+    namaAkun.includes('tk negeri pembina')
+  ) {
+    return {
+      id: user.lembaga_id || 'lem-ampel',
+      nama: 'TK Negeri Pembina Ampel',
+      kecamatan_id: user.kecamatan_id || 'kec-ampel',
+      kecamatan_nama: user.kecamatan_nama || 'Ampel',
+    };
+  }
+
+  return null;
+}
+
 export default function UnggahSiswaPage() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [lembagaList, setLembagaList] = useState<Lembaga[]>([]);
@@ -66,19 +100,27 @@ export default function UnggahSiswaPage() {
         ? allLembaga.filter((item) => String(item.id) === String(user.lembaga_id))
         : [];
 
-      // Fallback cocokkan berdasarkan nama lembaga jika lembaga_id belum terisi
-      if (ownLembaga.length === 0 && user.lembaga_nama) {
+      const fallback = getFallbackSchoolForOperator(user);
+
+      if (ownLembaga.length === 0 && fallback) {
         ownLembaga = allLembaga.filter(
-          (item) =>
-            item.nama.trim().toLowerCase() === user.lembaga_nama!.trim().toLowerCase()
+          (item) => item.nama.trim().toLowerCase() === fallback.nama.toLowerCase()
         );
+        if (ownLembaga.length === 0 && typeof (AppDataStore as any).addLembaga === 'function') {
+          const added = (AppDataStore as any).addLembaga({
+            id: fallback.id,
+            nama: fallback.nama,
+            kecamatan_id: fallback.kecamatan_id,
+            kecamatan_nama: fallback.kecamatan_nama,
+            jenjang: 'TK',
+          });
+          if (added) ownLembaga = [added];
+        }
       }
 
       const resolvedId = ownLembaga[0]?.id
         ? String(ownLembaga[0].id)
-        : user.lembaga_id
-          ? String(user.lembaga_id)
-          : '';
+        : fallback?.id || '';
 
       setLembagaList(ownLembaga);
       setTargetLembagaId(resolvedId);
@@ -115,7 +157,6 @@ export default function UnggahSiswaPage() {
 
   const role = normalizeRole(currentUser.role);
 
-  // PRD Role Check: Admin Kecamatan tidak diizinkan unggah data
   if (role === 'admin_kecamatan') {
     return (
       <AppLayout title="Akses Dibatasi">
@@ -132,7 +173,6 @@ export default function UnggahSiswaPage() {
     );
   }
 
-  // 1. Unduh Template Excel Standar
   const handleDownloadTemplate = () => {
     const bytes = generateStudentTemplate();
     const blob = new Blob([bytes as unknown as BlobPart], {
@@ -146,7 +186,6 @@ export default function UnggahSiswaPage() {
     URL.revokeObjectURL(url);
   };
 
-  // 2. Baca File Excel
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -169,7 +208,6 @@ export default function UnggahSiswaPage() {
     reader.readAsArrayBuffer(file);
   };
 
-  // 3. Unduh Laporan Error
   const handleDownloadErrors = () => {
     const failedRows = parsedRows.filter((r) => !r.isValid);
     if (failedRows.length === 0) return;
@@ -186,12 +224,25 @@ export default function UnggahSiswaPage() {
     URL.revokeObjectURL(url);
   };
 
-  // 4. Simpan ke Database
   const handleCommitUpload = () => {
-    const effectiveLembagaId =
+    const fallback = getFallbackSchoolForOperator(currentUser);
+    let effectiveLembagaId =
       role === 'operator_sekolah'
-        ? String(lembagaList[0]?.id || currentUser.lembaga_id || targetLembagaId)
+        ? String(lembagaList[0]?.id || targetLembagaId || fallback?.id || '')
         : targetLembagaId;
+
+    if (role === 'operator_sekolah' && fallback && typeof (AppDataStore as any).addLembaga === 'function') {
+      const ensuredSchool = (AppDataStore as any).addLembaga({
+        id: effectiveLembagaId || fallback.id,
+        nama: fallback.nama,
+        kecamatan_id: fallback.kecamatan_id,
+        kecamatan_nama: fallback.kecamatan_nama,
+        jenjang: 'TK',
+      });
+      if (ensuredSchool?.id) {
+        effectiveLembagaId = String(ensuredSchool.id);
+      }
+    }
 
     if (!effectiveLembagaId) {
       alert('Lembaga tujuan belum terhubung dengan akun ini. Hubungi Admin Dinas.');
@@ -211,6 +262,17 @@ export default function UnggahSiswaPage() {
       return;
     }
 
+    const enrichedUser: UserProfile =
+      role === 'operator_sekolah' && fallback
+        ? {
+          ...currentUser,
+          lembaga_id: effectiveLembagaId,
+          lembaga_nama: currentUser.lembaga_nama || fallback.nama,
+          kecamatan_id: currentUser.kecamatan_id || fallback.kecamatan_id,
+          kecamatan_nama: currentUser.kecamatan_nama || fallback.kecamatan_nama,
+        }
+        : currentUser;
+
     try {
       const res = AppDataStore.bulkUpsertSiswa(
         validRows,
@@ -218,7 +280,7 @@ export default function UnggahSiswaPage() {
         effectiveLembagaId,
         uploadMode,
         fileName,
-        currentUser
+        enrichedUser
       );
 
       setSaveResult(res);
@@ -235,21 +297,25 @@ export default function UnggahSiswaPage() {
 
   const validCount = parsedRows.filter((r) => r.isValid).length;
   const invalidCount = parsedRows.filter((r) => !r.isValid).length;
+  const fallbackSchool = getFallbackSchoolForOperator(currentUser);
   const targetLembaga = lembagaList.find(
     (l) => String(l.id) === String(targetLembagaId)
   );
+  const displaySchoolName =
+    targetLembaga?.nama || fallbackSchool?.nama || currentUser.lembaga_nama || 'TK Negeri Pembina Ampel';
+  const displayKecName =
+    targetLembaga?.kecamatan_nama || fallbackSchool?.kecamatan_nama || currentUser.kecamatan_nama || 'Ampel';
 
   return (
     <AppLayout
       title="Unggah Data Siswa Massal"
       subtitle={
         role === 'operator_sekolah'
-          ? `Unggah dan perbarui data peserta didik ${targetLembaga?.nama || currentUser.lembaga_nama || 'lembaga Anda'}`
+          ? `Unggah dan perbarui data peserta didik ${displaySchoolName}`
           : 'Kumpulkan dan perbarui data peserta didik lembaga menggunakan file Excel atau CSV'
       }
       breadcrumbs={[{ label: 'Unggah Siswa' }]}
     >
-      {/* Step Banner & Template Download Card */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         <div className="lg:col-span-2 space-y-4">
           <Card>
@@ -277,7 +343,7 @@ export default function UnggahSiswaPage() {
                   <strong className="text-indigo-900 block font-semibold">
                     Isi Data Siswa
                   </strong>
-                  NISN boleh dikosongkan jika peserta didik PAUD/Posyandu belum memilikinya. Tanggal lahir harus format DD-MM-YYYY (contoh: 15-05-2019).
+                  NISN wajib diisi 10 digit angka. Tanggal lahir harus format DD-MM-YYYY (contoh: 12-04-2020).
                 </div>
               </div>
 
@@ -325,14 +391,12 @@ export default function UnggahSiswaPage() {
         </div>
       </div>
 
-      {/* Upload Zone Card */}
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Pilih Lembaga &amp; Unggah File</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Target Lembaga */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Lembaga Tujuan Pengunggahan *
@@ -351,16 +415,11 @@ export default function UnggahSiswaPage() {
                 </select>
               ) : (
                 <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800">
-                  {targetLembaga?.nama || currentUser.lembaga_nama || 'Lembaga Anda'}
-                  {targetLembaga?.jenjang ? ` (${targetLembaga.jenjang})` : ''}
-                  {targetLembaga?.kecamatan_nama || currentUser.kecamatan_nama
-                    ? ` • Kec. ${targetLembaga?.kecamatan_nama || currentUser.kecamatan_nama}`
-                    : ''}
+                  {displaySchoolName} ({targetLembaga?.jenjang || 'TK'}) • Kec. {displayKecName}
                 </div>
               )}
             </div>
 
-            {/* Mode Unggah */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Mode Pembaruan Data
@@ -403,7 +462,6 @@ export default function UnggahSiswaPage() {
             </div>
           </div>
 
-          {/* Drag & Drop File Picker */}
           <div
             onClick={() => fileInputRef.current?.click()}
             className="border-2 border-dashed border-slate-300 hover:border-blue-600 rounded-2xl p-8 text-center cursor-pointer transition bg-slate-50/50 hover:bg-blue-50/30"
@@ -432,7 +490,6 @@ export default function UnggahSiswaPage() {
         </CardContent>
       </Card>
 
-      {/* Validation Summary & Preview Table */}
       {parsedRows.length > 0 && (
         <div className="space-y-4 mb-6">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -577,7 +634,6 @@ export default function UnggahSiswaPage() {
         </div>
       )}
 
-      {/* Riwayat Pengunggahan */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -629,7 +685,6 @@ export default function UnggahSiswaPage() {
         </CardContent>
       </Card>
 
-      {/* Modal Peringatan Ganti Semua Data */}
       <Modal
         isOpen={showReplaceModal}
         onClose={() => setShowReplaceModal(false)}
@@ -641,7 +696,7 @@ export default function UnggahSiswaPage() {
             <div>
               <strong className="block font-bold">PERINGATAN TINGKAT TINGGI</strong>
               Mode <em>Ganti Semua Data</em> akan menghapus seluruh data siswa yang saat ini tercatat di lembaga{' '}
-              <strong>{targetLembaga?.nama || currentUser.lembaga_nama}</strong> dan menggantikannya sepenuhnya dengan file baru.
+              <strong>{displaySchoolName}</strong> dan menggantikannya sepenuhnya dengan file baru.
             </div>
           </div>
           <p className="text-slate-600">
@@ -666,7 +721,6 @@ export default function UnggahSiswaPage() {
         </div>
       </Modal>
 
-      {/* Modal Hasil Sukses */}
       <Modal
         isOpen={showSuccessModal}
         onClose={() => setShowSuccessModal(false)}
