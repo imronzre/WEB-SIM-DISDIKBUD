@@ -26,9 +26,16 @@ import {
 import { formatDateIndo, calculateAge } from '@/lib/utils';
 import { exportSiswaToExcel } from '@/lib/excel';
 
+const VALID_JENJANG = ['TK', 'KB', 'SPS', 'TPA'];
+
 function SiswaContent() {
   const searchParams = useSearchParams();
   const preselectedLembaga = searchParams?.get('lembaga_id') || 'all';
+  const preselectedKecamatan = searchParams?.get('kecamatan_id') || 'all';
+  const rawJenjang = (searchParams?.get('jenjang') || '').toUpperCase();
+  const preselectedJenjang = VALID_JENJANG.includes(rawJenjang)
+    ? rawJenjang
+    : 'all';
 
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [siswaList, setSiswaList] = useState<Siswa[]>([]);
@@ -37,9 +44,9 @@ function SiswaContent() {
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedKecamatan, setSelectedKecamatan] = useState('all');
+  const [selectedKecamatan, setSelectedKecamatan] = useState(preselectedKecamatan);
   const [selectedLembaga, setSelectedLembaga] = useState(preselectedLembaga);
-  const [selectedJenjang, setSelectedJenjang] = useState('all');
+  const [selectedJenjang, setSelectedJenjang] = useState(preselectedJenjang);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -65,23 +72,31 @@ function SiswaContent() {
     setCurrentUser(user);
     const role = normalizeRole(user.role);
 
-    let l = AppDataStore.getLembagaList();
+    const allLembaga = AppDataStore.getLembagaList();
+    let l = allLembaga;
+
     if (role === 'admin_kecamatan' && user.kecamatan_id) {
       l = l.filter((item) => item.kecamatan_id === user.kecamatan_id);
       setSelectedKecamatan(user.kecamatan_id);
     } else if (role === 'operator_sekolah' && user.lembaga_id) {
       l = l.filter((item) => item.id === user.lembaga_id);
       setSelectedLembaga(user.lembaga_id);
+    } else if (preselectedLembaga !== 'all') {
+      const targetLembaga = allLembaga.find((item) => item.id === preselectedLembaga);
+      if (targetLembaga) {
+        setSelectedKecamatan(targetLembaga.kecamatan_id);
+        setSelectedLembaga(targetLembaga.id);
+      }
     }
-    setLembagaList(l);
 
+    setLembagaList(l);
     setKecamatanList(AppDataStore.getKecamatan());
     setSiswaList(AppDataStore.getSiswaList());
   };
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [preselectedLembaga, preselectedKecamatan, preselectedJenjang]);
 
   if (!currentUser) return null;
 
@@ -101,7 +116,12 @@ function SiswaContent() {
     // UI filters
     if (selectedKecamatan !== 'all' && s.kecamatan_id !== selectedKecamatan) return false;
     if (selectedLembaga !== 'all' && s.lembaga_id !== selectedLembaga) return false;
-    if (selectedJenjang !== 'all' && s.jenjang !== selectedJenjang) return false;
+    if (
+      selectedJenjang !== 'all' &&
+      String(s.jenjang || '').toUpperCase() !== selectedJenjang
+    ) {
+      return false;
+    }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
@@ -372,11 +392,11 @@ function SiswaContent() {
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
                 <th className="py-3 px-4 w-12 text-center">No</th>
-                <th className="py-3 px-4">Nama Lengkap & NISN</th>
-                <th className="py-3 px-4">Tanggal Lahir & Usia</th>
+                <th className="py-3 px-4">Nama Lengkap &amp; NISN</th>
+                <th className="py-3 px-4">Tanggal Lahir &amp; Usia</th>
                 <th className="py-3 px-4">Alamat Tempat Tinggal</th>
                 <th className="py-3 px-4">Orang Tua (Ayah / Ibu)</th>
-                <th className="py-3 px-4">Lembaga & Jenjang</th>
+                <th className="py-3 px-4">Lembaga &amp; Jenjang</th>
                 {canModify && <th className="py-3 px-4 text-center w-24">Aksi</th>}
               </tr>
             </thead>
