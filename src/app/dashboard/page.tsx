@@ -10,7 +10,6 @@ import {
   AlertCircle,
   FileText,
   ArrowRight,
-  Filter,
   RotateCcw,
   Search,
   Building2,
@@ -58,8 +57,8 @@ export default function DashboardPage() {
   const [lembagaList, setLembagaList] = useState<Lembaga[]>([]);
   const [kecamatanList, setKecamatanList] = useState<Kecamatan[]>([]);
 
-  // Filter utama (Kecamatan, Jenjang, Pencarian)
-  const [selectedKec, setSelectedKec] = useState<string>('all');
+  // Filter minimalis: Cari Kecamatan & Jenjang Pendidikan
+  const [focusedKec, setFocusedKec] = useState<string>('all');
   const [selectedJenjang, setSelectedJenjang] = useState<JenjangFilter>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
@@ -79,7 +78,7 @@ export default function DashboardPage() {
     if (role === 'admin_kecamatan' && user.kecamatan_id) {
       l = l.filter((item) => item.kecamatan_id === user.kecamatan_id);
       setKecamatanList(allKec.filter((k) => k.id === user.kecamatan_id));
-      setSelectedKec(user.kecamatan_id);
+      setFocusedKec(user.kecamatan_id);
     } else if (role === 'operator_sekolah' && user.lembaga_id) {
       l = l.filter((item) => item.id === user.lembaga_id);
       const ownLembaga = l[0];
@@ -87,7 +86,7 @@ export default function DashboardPage() {
         setKecamatanList(
           allKec.filter((k) => k.id === ownLembaga.kecamatan_id)
         );
-        setSelectedKec(ownLembaga.kecamatan_id);
+        setFocusedKec(ownLembaga.kecamatan_id);
       } else {
         setKecamatanList(allKec);
       }
@@ -100,10 +99,10 @@ export default function DashboardPage() {
 
   const role = currentUser ? normalizeRole(currentUser.role) : 'admin_dinas';
 
-  // Lembaga yang lolos filter kecamatan & jenjang
+  // Lembaga yang lolos filter jenjang (dan fokus kecamatan bila diklik dari tabel)
   const filteredLembaga = useMemo(() => {
     return lembagaList.filter((item) => {
-      if (selectedKec !== 'all' && item.kecamatan_id !== selectedKec) {
+      if (focusedKec !== 'all' && item.kecamatan_id !== focusedKec) {
         return false;
       }
       if (
@@ -114,14 +113,14 @@ export default function DashboardPage() {
       }
       return true;
     });
-  }, [lembagaList, selectedKec, selectedJenjang]);
+  }, [lembagaList, focusedKec, selectedJenjang]);
 
-  // Rekapitulasi per 22 Kecamatan (mengikuti filter kecamatan, jenjang, dan pencarian nama kecamatan)
+  // Rekapitulasi per kecamatan (mengikuti pencarian nama kecamatan & jenjang)
   const kecamatanRecapRows: KecamatanRecapRow[] = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
 
     const targetKecamatan = kecamatanList.filter((k) => {
-      if (selectedKec !== 'all' && k.id !== selectedKec) return false;
+      if (focusedKec !== 'all' && k.id !== focusedKec) return false;
       if (q && !k.nama.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -158,7 +157,7 @@ export default function DashboardPage() {
         totalSiswa,
       };
     });
-  }, [kecamatanList, filteredLembaga, selectedKec, searchQuery]);
+  }, [kecamatanList, filteredLembaga, focusedKec, searchQuery]);
 
   // Baris Total Keseluruhan
   const recapTotals = useMemo(() => {
@@ -186,14 +185,14 @@ export default function DashboardPage() {
 
   const handleResetFilters = () => {
     if (role === 'admin_dinas') {
-      setSelectedKec('all');
+      setFocusedKec('all');
     }
     setSelectedJenjang('all');
     setSearchQuery('');
   };
 
   const handleFocusKecamatanLembaga = (kecamatanId: string) => {
-    setSelectedKec(kecamatanId);
+    setFocusedKec(kecamatanId);
     lembagaSectionRef.current?.scrollIntoView({
       behavior: 'smooth',
       block: 'start',
@@ -201,7 +200,7 @@ export default function DashboardPage() {
   };
 
   const hasActiveFilter =
-    (role === 'admin_dinas' && selectedKec !== 'all') ||
+    (role === 'admin_dinas' && focusedKec !== 'all') ||
     selectedJenjang !== 'all' ||
     searchQuery.trim().length > 0;
 
@@ -218,7 +217,6 @@ export default function DashboardPage() {
     >
       {/* Overview Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        {/* Total Siswa */}
         <Card className="border-blue-100 bg-gradient-to-br from-white to-blue-50/40">
           <CardContent className="p-5 flex items-center justify-between">
             <div>
@@ -238,7 +236,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Total Lembaga */}
         <Card className="border-indigo-100 bg-gradient-to-br from-white to-indigo-50/40">
           <CardContent className="p-5 flex items-center justify-between">
             <div>
@@ -258,7 +255,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Lembaga Sudah Unggah */}
         <Card className="border-emerald-100 bg-gradient-to-br from-white to-emerald-50/40">
           <CardContent className="p-5 flex items-center justify-between">
             <div>
@@ -281,7 +277,6 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Lembaga Belum Unggah */}
         <Card className="border-amber-100 bg-gradient-to-br from-white to-amber-50/40">
           <CardContent className="p-5 flex items-center justify-between">
             <div>
@@ -302,7 +297,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Quick Action CTA for Lembaga & Dinas */}
+      {/* Quick Action CTA */}
       {role !== 'admin_kecamatan' && (
         <div className="mb-6 bg-gradient-to-r from-blue-700 to-indigo-800 rounded-2xl p-6 text-white shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
@@ -332,28 +327,30 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Main Grid: Satu Kotak Filter + Rekap 22 Kecamatan & Breakdown Jenjang */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Kolom Kiri (2 Cols): Kotak Tunggal Filter + Tabel Rekap Kecamatan, lalu Rincian Lembaga */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Kotak Tunggal: Header + Filter + Tabel Rekapitulasi Per Kecamatan */}
-          <Card>
-            <CardHeader className="border-b border-slate-100 pb-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">
-                    Rekapitulasi Data Lembaga &amp; Siswa per Kecamatan
+      {/* Main Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        {/* Kolom Kiri (2 Cols): Kotak Rekap Minimalis + Rincian Lembaga */}
+        <div className="lg:col-span-2 min-w-0 space-y-6">
+          {/* Kotak Tunggal: Header Ringkas + 2 Filter Minimalis + Tabel Rekap 22 Kecamatan */}
+          <Card className="overflow-hidden">
+            <CardHeader className="border-b border-slate-100 pb-4 space-y-3.5">
+              {/* Baris Atas: Judul & Badge */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-base font-bold text-slate-900 truncate">
+                    Rekapitulasi per Kecamatan
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Klik angka jumlah lembaga untuk melihat daftar sekolah, atau klik jumlah siswa per jenjang untuk rincian peserta didik
+                    Klik jumlah lembaga untuk daftar sekolah, atau klik jumlah siswa per jenjang untuk rincian siswa
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+
+                <div className="flex items-center gap-2 shrink-0">
                   {hasActiveFilter && (
                     <button
                       type="button"
                       onClick={handleResetFilters}
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 hover:text-blue-900"
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
                       Reset
@@ -365,65 +362,35 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* Baris Filter di Dalam Kotak yang Sama */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-100">
-                <div>
-                  <label className="flex items-center gap-1 text-[11px] font-semibold text-slate-600 mb-1">
-                    <Filter className="w-3 h-3 text-blue-600" />
-                    Kecamatan
-                  </label>
-                  <select
-                    value={selectedKec}
-                    disabled={role !== 'admin_dinas'}
-                    onChange={(e) => setSelectedKec(e.target.value)}
-                    className="w-full text-xs border border-slate-300 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:ring-1 focus:ring-blue-600 outline-none disabled:bg-slate-100 disabled:text-slate-500"
-                  >
-                    {role === 'admin_dinas' && (
-                      <option value="all">
-                        Semua Kecamatan ({kecamatanList.length})
-                      </option>
-                    )}
-                    {kecamatanList.map((k) => (
-                      <option key={k.id} value={k.id}>
-                        Kec. {k.nama}
-                      </option>
-                    ))}
-                  </select>
+              {/* Baris Filter: Hanya Cari Kecamatan & Jenjang Pendidikan */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Cari kecamatan..."
+                    aria-label="Cari kecamatan"
+                    className="w-full text-xs border border-slate-200 rounded-lg pl-8 pr-3 py-2 bg-slate-50/60 focus:bg-white text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
+                  />
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                    Jenjang Pendidikan
-                  </label>
                   <select
                     value={selectedJenjang}
                     onChange={(e) =>
                       setSelectedJenjang(e.target.value as JenjangFilter)
                     }
-                    className="w-full text-xs border border-slate-300 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:ring-1 focus:ring-blue-600 outline-none"
+                    aria-label="Jenjang Pendidikan"
+                    className="w-full text-xs border border-slate-200 rounded-lg px-3 py-2 bg-slate-50/60 focus:bg-white text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition"
                   >
-                    <option value="all">Semua Jenjang (KB, TK, SPS, TPA)</option>
+                    <option value="all">Semua Jenjang Pendidikan</option>
                     <option value="KB">KB (Kelompok Bermain)</option>
                     <option value="TK">TK (Taman Kanak-Kanak)</option>
                     <option value="SPS">SPS (Satuan PAUD Sejenis)</option>
                     <option value="TPA">TPA (Taman Penitipan Anak)</option>
                   </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                    Cari Kecamatan
-                  </label>
-                  <div className="relative">
-                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2" />
-                    <input
-                      type="text"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      placeholder="Ketik nama kecamatan..."
-                      className="w-full text-xs border border-slate-300 rounded-lg pl-8 pr-3 py-1.5 bg-white text-slate-700 focus:ring-1 focus:ring-blue-600 outline-none"
-                    />
-                  </div>
                 </div>
               </div>
             </CardHeader>
@@ -431,10 +398,10 @@ export default function DashboardPage() {
             <CardContent className="p-0 overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
-                  <tr className="bg-slate-100 border-b border-slate-200 text-slate-700 font-bold">
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-700 font-bold">
                     <th
                       rowSpan={2}
-                      className="py-2.5 px-3 border-r border-slate-200 text-center w-10"
+                      className="py-2.5 px-3 border-r border-slate-200 text-center w-11"
                     >
                       No
                     </th>
@@ -452,18 +419,18 @@ export default function DashboardPage() {
                     </th>
                     <th
                       colSpan={4}
-                      className="py-2 px-3 border-b border-r border-slate-200 text-center bg-blue-50/70 text-blue-900"
+                      className="py-2 px-3 border-b border-r border-slate-200 text-center bg-blue-50/60 text-blue-900"
                     >
                       Jumlah Siswa
                     </th>
                     <th
                       rowSpan={2}
-                      className="py-2.5 px-3 text-center bg-slate-100"
+                      className="py-2.5 px-3 text-center bg-slate-50"
                     >
                       Total Siswa
                     </th>
                   </tr>
-                  <tr className="bg-blue-50/40 border-b border-slate-200 text-slate-700 font-semibold">
+                  <tr className="bg-blue-50/30 border-b border-slate-200 text-slate-700 font-semibold">
                     <th className="py-2 px-3 border-r border-slate-200 text-center">
                       KB
                     </th>
@@ -485,14 +452,14 @@ export default function DashboardPage() {
                         colSpan={8}
                         className="py-8 text-center text-slate-400"
                       >
-                        Tidak ada kecamatan yang cocok dengan filter.
+                        Tidak ada kecamatan yang cocok dengan pencarian.
                       </td>
                     </tr>
                   ) : (
                     kecamatanRecapRows.map((row, idx) => (
                       <tr
                         key={row.kecamatanId}
-                        className="hover:bg-blue-50/30 transition"
+                        className="hover:bg-slate-50/90 transition"
                       >
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center text-slate-500">
                           {idx + 1}
@@ -501,7 +468,6 @@ export default function DashboardPage() {
                           {row.kecamatanNama}
                         </td>
 
-                        {/* Jumlah Lembaga (klik untuk melihat daftar lembaga di kecamatan tersebut) */}
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.jumlahLembaga > 0 ? (
                             <button
@@ -519,7 +485,6 @@ export default function DashboardPage() {
                           )}
                         </td>
 
-                        {/* Jumlah Siswa KB */}
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.siswaKB > 0 ? (
                             <Link
@@ -534,7 +499,6 @@ export default function DashboardPage() {
                           )}
                         </td>
 
-                        {/* Jumlah Siswa TK */}
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.siswaTK > 0 ? (
                             <Link
@@ -549,7 +513,6 @@ export default function DashboardPage() {
                           )}
                         </td>
 
-                        {/* Jumlah Siswa SPS */}
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.siswaSPS > 0 ? (
                             <Link
@@ -564,7 +527,6 @@ export default function DashboardPage() {
                           )}
                         </td>
 
-                        {/* Jumlah Siswa TPA */}
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.siswaTPA > 0 ? (
                             <Link
@@ -579,8 +541,7 @@ export default function DashboardPage() {
                           )}
                         </td>
 
-                        {/* Total Siswa Kecamatan */}
-                        <td className="py-2.5 px-3 text-center font-bold text-slate-900 bg-slate-50/60">
+                        <td className="py-2.5 px-3 text-center font-bold text-slate-900 bg-slate-50/50">
                           {row.totalSiswa > 0 ? (
                             <Link
                               href={`/siswa?kecamatan_id=${row.kecamatanId}`}
@@ -628,9 +589,9 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          {/* Rincian Lembaga / Sekolah (Klik untuk melihat data lengkap siswa di lembaga) */}
+          {/* Rincian Lembaga / Sekolah */}
           <div ref={lembagaSectionRef}>
-            <Card>
+            <Card className="overflow-hidden">
               <CardHeader className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex items-start gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-700 flex items-center justify-center shrink-0 mt-0.5">
@@ -735,7 +696,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Kolom Kanan (1 Col): Distribusi Jenjang & Navigasi Cepat */}
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4">
           <Card>
             <CardHeader>
               <h3 className="text-base font-bold text-slate-900">
