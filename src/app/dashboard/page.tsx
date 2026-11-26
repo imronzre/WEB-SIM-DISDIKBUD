@@ -27,7 +27,6 @@ import {
   Kecamatan,
   normalizeRole,
 } from '@/lib/types';
-import { formatDateIndo } from '@/lib/utils';
 
 type JenjangType = 'KB' | 'TK' | 'SPS' | 'TPA';
 type JenjangFilter = 'all' | JenjangType;
@@ -74,35 +73,42 @@ export default function DashboardPage() {
     setStats(s);
 
     const allKec = AppDataStore.getKecamatan();
-    let l = AppDataStore.getLembagaList();
+    const allLembaga = AppDataStore.getLembagaList();
 
-    if (role === 'admin_kecamatan' && user.kecamatan_id) {
-      l = l.filter((item) => item.kecamatan_id === user.kecamatan_id);
-      setKecamatanList(allKec.filter((k) => k.id === user.kecamatan_id));
-      setFocusedKec(user.kecamatan_id);
-    } else if (role === 'operator_sekolah' && user.lembaga_id) {
-      l = l.filter((item) => item.id === user.lembaga_id);
-      const ownLembaga = l[0];
-      if (ownLembaga) {
-        setKecamatanList(
-          allKec.filter((k) => k.id === ownLembaga.kecamatan_id)
-        );
-        setFocusedKec(ownLembaga.kecamatan_id);
-      } else {
-        setKecamatanList(allKec);
-      }
+    setKecamatanList(allKec);
+
+    if (role === 'operator_sekolah') {
+      // Rekapan seluruh kecamatan tetap bisa dilihat, tapi rincian lembaga/edit hanya sekolahnya sendiri
+      setLembagaList(
+        user.lembaga_id
+          ? allLembaga.filter((item) => String(item.id) === String(user.lembaga_id))
+          : []
+      );
+      setFocusedKec('all');
+    } else if (role === 'admin_kecamatan' && user.kecamatan_id) {
+      setLembagaList(
+        allLembaga.filter(
+          (item) => String(item.kecamatan_id) === String(user.kecamatan_id)
+        )
+      );
+      setFocusedKec(String(user.kecamatan_id));
     } else {
-      setKecamatanList(allKec);
+      setLembagaList(allLembaga);
+      setFocusedKec('all');
     }
-
-    setLembagaList(l);
   }, []);
 
   const role = currentUser ? normalizeRole(currentUser.role) : 'admin_dinas';
+  const canDrillRecap = role === 'admin_dinas';
 
-  const filteredLembaga = useMemo(() => {
+  // Untuk rekap kecamatan: operator melihat rekapan seluruh kecamatan, admin dinas bisa fokus 1 kecamatan saat diklik
+  const recapSourceLembaga = useMemo(() => {
     return lembagaList.filter((item) => {
-      if (focusedKec !== 'all' && item.kecamatan_id !== focusedKec) {
+      if (
+        canDrillRecap &&
+        focusedKec !== 'all' &&
+        String(item.kecamatan_id) !== focusedKec
+      ) {
         return false;
       }
       if (
@@ -113,20 +119,46 @@ export default function DashboardPage() {
       }
       return true;
     });
-  }, [lembagaList, focusedKec, selectedJenjang]);
+  }, [lembagaList, canDrillRecap, focusedKec, selectedJenjang]);
+
+  // Untuk rincian lembaga: operator hanya melihat sekolahnya sendiri; admin dinas mengikuti filter fokus kecamatan & jenjang
+  const filteredLembaga = useMemo(() => {
+    return lembagaList.filter((item) => {
+      if (
+        canDrillRecap &&
+        focusedKec !== 'all' &&
+        String(item.kecamatan_id) !== focusedKec
+      ) {
+        return false;
+      }
+      if (
+        selectedJenjang !== 'all' &&
+        String(item.jenjang).toUpperCase() !== selectedJenjang
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }, [lembagaList, canDrillRecap, focusedKec, selectedJenjang]);
 
   const kecamatanRecapRows: KecamatanRecapRow[] = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
 
     const targetKecamatan = kecamatanList.filter((k) => {
-      if (focusedKec !== 'all' && k.id !== focusedKec) return false;
+      if (
+        canDrillRecap &&
+        focusedKec !== 'all' &&
+        String(k.id) !== focusedKec
+      ) {
+        return false;
+      }
       if (q && !k.nama.toLowerCase().includes(q)) return false;
       return true;
     });
 
     return targetKecamatan.map((kec) => {
-      const lembagaInKec = filteredLembaga.filter(
-        (l) => l.kecamatan_id === kec.id
+      const lembagaInKec = recapSourceLembaga.filter(
+        (l) => String(l.kecamatan_id) === String(kec.id)
       );
 
       let siswaKB = 0;
@@ -146,7 +178,7 @@ export default function DashboardPage() {
       const totalSiswa = siswaKB + siswaTK + siswaSPS + siswaTPA;
 
       return {
-        kecamatanId: kec.id,
+        kecamatanId: String(kec.id),
         kecamatanNama: kec.nama,
         jumlahLembaga: lembagaInKec.length,
         siswaKB,
@@ -156,7 +188,7 @@ export default function DashboardPage() {
         totalSiswa,
       };
     });
-  }, [kecamatanList, filteredLembaga, focusedKec, searchQuery]);
+  }, [kecamatanList, recapSourceLembaga, canDrillRecap, focusedKec, searchQuery]);
 
   const recapTotals = useMemo(() => {
     return kecamatanRecapRows.reduce(
@@ -182,7 +214,7 @@ export default function DashboardPage() {
   if (!currentUser) return null;
 
   const handleResetFilters = () => {
-    if (role === 'admin_dinas') {
+    if (canDrillRecap) {
       setFocusedKec('all');
     }
     setSelectedJenjang('all');
@@ -190,6 +222,7 @@ export default function DashboardPage() {
   };
 
   const handleFocusKecamatanLembaga = (kecamatanId: string) => {
+    if (!canDrillRecap) return;
     setFocusedKec(kecamatanId);
     lembagaSectionRef.current?.scrollIntoView({
       behavior: 'smooth',
@@ -280,7 +313,7 @@ export default function DashboardPage() {
   };
 
   const hasActiveFilter =
-    (role === 'admin_dinas' && focusedKec !== 'all') ||
+    (canDrillRecap && focusedKec !== 'all') ||
     selectedJenjang !== 'all' ||
     searchQuery.trim().length > 0;
 
@@ -292,7 +325,7 @@ export default function DashboardPage() {
           ? 'Ringkasan data peserta didik dan rekapitulasi 22 kecamatan se-Kabupaten Boyolali'
           : role === 'admin_kecamatan'
             ? `Ringkasan data wilayah Korwil Kecamatan ${currentUser.kecamatan_nama}`
-            : `Ringkasan data peserta didik ${currentUser.lembaga_nama}`
+            : `Rekapitulasi kecamatan & pengelolaan data ${currentUser.lembaga_nama || 'sekolah Anda'}`
       }
     >
       {/* Overview Cards */}
@@ -420,7 +453,9 @@ export default function DashboardPage() {
                     Rekapitulasi per Kecamatan
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                    Klik jumlah lembaga untuk daftar sekolah, atau klik jumlah siswa per jenjang untuk rincian siswa
+                    {canDrillRecap
+                      ? 'Klik jumlah lembaga untuk daftar sekolah, atau klik jumlah siswa per jenjang untuk rincian siswa'
+                      : 'Rekapitulasi data per kecamatan (tampilan pantauan, rincian dan pengelolaan data hanya untuk sekolah Anda)'}
                   </p>
                 </div>
 
@@ -548,16 +583,22 @@ export default function DashboardPage() {
 
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.jumlahLembaga > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleFocusKecamatanLembaga(row.kecamatanId)
-                              }
-                              title={`Lihat ${row.jumlahLembaga} lembaga di Kec. ${row.kecamatanNama}`}
-                              className="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-md font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:underline transition"
-                            >
-                              {row.jumlahLembaga}
-                            </button>
+                            canDrillRecap ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  handleFocusKecamatanLembaga(row.kecamatanId)
+                                }
+                                title={`Lihat ${row.jumlahLembaga} lembaga di Kec. ${row.kecamatanNama}`}
+                                className="inline-flex items-center justify-center min-w-[2rem] px-2 py-0.5 rounded-md font-bold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 hover:underline transition"
+                              >
+                                {row.jumlahLembaga}
+                              </button>
+                            ) : (
+                              <span className="font-semibold text-slate-700">
+                                {row.jumlahLembaga}
+                              </span>
+                            )
                           ) : (
                             <span className="text-slate-400">0</span>
                           )}
@@ -565,13 +606,19 @@ export default function DashboardPage() {
 
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.siswaKB > 0 ? (
-                            <Link
-                              href={`/siswa?kecamatan_id=${row.kecamatanId}&jenjang=KB`}
-                              title={`Lihat data siswa KB di Kec. ${row.kecamatanNama}`}
-                              className="font-semibold text-purple-700 hover:underline"
-                            >
-                              {row.siswaKB.toLocaleString('id-ID')}
-                            </Link>
+                            canDrillRecap ? (
+                              <Link
+                                href={`/siswa?kecamatan_id=${row.kecamatanId}&jenjang=KB`}
+                                title={`Lihat data siswa KB di Kec. ${row.kecamatanNama}`}
+                                className="font-semibold text-purple-700 hover:underline"
+                              >
+                                {row.siswaKB.toLocaleString('id-ID')}
+                              </Link>
+                            ) : (
+                              <span className="font-semibold text-purple-700">
+                                {row.siswaKB.toLocaleString('id-ID')}
+                              </span>
+                            )
                           ) : (
                             <span className="text-slate-400">0</span>
                           )}
@@ -579,13 +626,19 @@ export default function DashboardPage() {
 
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.siswaTK > 0 ? (
-                            <Link
-                              href={`/siswa?kecamatan_id=${row.kecamatanId}&jenjang=TK`}
-                              title={`Lihat data siswa TK di Kec. ${row.kecamatanNama}`}
-                              className="font-semibold text-blue-700 hover:underline"
-                            >
-                              {row.siswaTK.toLocaleString('id-ID')}
-                            </Link>
+                            canDrillRecap ? (
+                              <Link
+                                href={`/siswa?kecamatan_id=${row.kecamatanId}&jenjang=TK`}
+                                title={`Lihat data siswa TK di Kec. ${row.kecamatanNama}`}
+                                className="font-semibold text-blue-700 hover:underline"
+                              >
+                                {row.siswaTK.toLocaleString('id-ID')}
+                              </Link>
+                            ) : (
+                              <span className="font-semibold text-blue-700">
+                                {row.siswaTK.toLocaleString('id-ID')}
+                              </span>
+                            )
                           ) : (
                             <span className="text-slate-400">0</span>
                           )}
@@ -593,13 +646,19 @@ export default function DashboardPage() {
 
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.siswaSPS > 0 ? (
-                            <Link
-                              href={`/siswa?kecamatan_id=${row.kecamatanId}&jenjang=SPS`}
-                              title={`Lihat data siswa SPS di Kec. ${row.kecamatanNama}`}
-                              className="font-semibold text-amber-700 hover:underline"
-                            >
-                              {row.siswaSPS.toLocaleString('id-ID')}
-                            </Link>
+                            canDrillRecap ? (
+                              <Link
+                                href={`/siswa?kecamatan_id=${row.kecamatanId}&jenjang=SPS`}
+                                title={`Lihat data siswa SPS di Kec. ${row.kecamatanNama}`}
+                                className="font-semibold text-amber-700 hover:underline"
+                              >
+                                {row.siswaSPS.toLocaleString('id-ID')}
+                              </Link>
+                            ) : (
+                              <span className="font-semibold text-amber-700">
+                                {row.siswaSPS.toLocaleString('id-ID')}
+                              </span>
+                            )
                           ) : (
                             <span className="text-slate-400">0</span>
                           )}
@@ -607,13 +666,19 @@ export default function DashboardPage() {
 
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.siswaTPA > 0 ? (
-                            <Link
-                              href={`/siswa?kecamatan_id=${row.kecamatanId}&jenjang=TPA`}
-                              title={`Lihat data siswa TPA di Kec. ${row.kecamatanNama}`}
-                              className="font-semibold text-emerald-700 hover:underline"
-                            >
-                              {row.siswaTPA.toLocaleString('id-ID')}
-                            </Link>
+                            canDrillRecap ? (
+                              <Link
+                                href={`/siswa?kecamatan_id=${row.kecamatanId}&jenjang=TPA`}
+                                title={`Lihat data siswa TPA di Kec. ${row.kecamatanNama}`}
+                                className="font-semibold text-emerald-700 hover:underline"
+                              >
+                                {row.siswaTPA.toLocaleString('id-ID')}
+                              </Link>
+                            ) : (
+                              <span className="font-semibold text-emerald-700">
+                                {row.siswaTPA.toLocaleString('id-ID')}
+                              </span>
+                            )
                           ) : (
                             <span className="text-slate-400">0</span>
                           )}
@@ -621,12 +686,16 @@ export default function DashboardPage() {
 
                         <td className="py-2.5 px-3 text-center font-bold text-slate-900 bg-slate-50/50">
                           {row.totalSiswa > 0 ? (
-                            <Link
-                              href={`/siswa?kecamatan_id=${row.kecamatanId}`}
-                              className="hover:text-blue-700 hover:underline"
-                            >
-                              {row.totalSiswa.toLocaleString('id-ID')}
-                            </Link>
+                            canDrillRecap ? (
+                              <Link
+                                href={`/siswa?kecamatan_id=${row.kecamatanId}`}
+                                className="hover:text-blue-700 hover:underline"
+                              >
+                                {row.totalSiswa.toLocaleString('id-ID')}
+                              </Link>
+                            ) : (
+                              <span>{row.totalSiswa.toLocaleString('id-ID')}</span>
+                            )
                           ) : (
                             <span className="text-slate-400 font-normal">0</span>
                           )}
@@ -677,10 +746,14 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-slate-900">
-                      Rincian Lembaga / Sekolah
+                      {role === 'operator_sekolah'
+                        ? 'Lembaga / Sekolah Anda'
+                        : 'Rincian Lembaga / Sekolah'}
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Klik jumlah siswa atau tombol &ldquo;Lihat Siswa&rdquo; untuk membuka data lengkap peserta didik per lembaga
+                      {role === 'operator_sekolah'
+                        ? 'Kelola dan lihat data peserta didik milik sekolah Anda sendiri'
+                        : 'Klik jumlah siswa atau tombol "Lihat Siswa" untuk membuka data lengkap peserta didik per lembaga'}
                     </p>
                   </div>
                 </div>
@@ -747,7 +820,9 @@ export default function DashboardPage() {
                               href={`/siswa?lembaga_id=${lem.id}`}
                               className="text-blue-700 hover:text-blue-900 font-semibold text-xs hover:underline"
                             >
-                              Lihat Siswa →
+                              {role === 'operator_sekolah'
+                                ? 'Kelola Siswa →'
+                                : 'Lihat Siswa →'}
                             </Link>
                           </td>
                         </tr>
