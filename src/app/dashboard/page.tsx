@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import Link from 'next/link';
+import * as XLSX from 'xlsx';
 import {
   Users,
   School,
@@ -13,6 +14,7 @@ import {
   RotateCcw,
   Search,
   Building2,
+  Download,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -193,6 +195,91 @@ export default function DashboardPage() {
       behavior: 'smooth',
       block: 'start',
     });
+  };
+
+  const handleExportRekapKecamatanExcel = () => {
+    const rows = kecamatanRecapRows.map((r, idx) => ({
+      No: idx + 1,
+      Kecamatan: r.kecamatanNama,
+      'Jumlah Lembaga': r.jumlahLembaga,
+      'Siswa KB': r.siswaKB,
+      'Siswa TK': r.siswaTK,
+      'Siswa SPS': r.siswaSPS,
+      'Siswa TPA': r.siswaTPA,
+      'Total Siswa': r.totalSiswa,
+    }));
+
+    rows.push({
+      No: recapTotals.jumlahLembaga > 0 || recapTotals.totalSiswa > 0 ? rows.length + 1 : 0,
+      Kecamatan: 'Total Keseluruhan',
+      'Jumlah Lembaga': recapTotals.jumlahLembaga,
+      'Siswa KB': recapTotals.siswaKB,
+      'Siswa TK': recapTotals.siswaTK,
+      'Siswa SPS': recapTotals.siswaSPS,
+      'Siswa TPA': recapTotals.siswaTPA,
+      'Total Siswa': recapTotals.totalSiswa,
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    worksheet['!cols'] = [
+      { wch: 6 },
+      { wch: 24 },
+      { wch: 16 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 12 },
+      { wch: 14 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Rekap Kecamatan');
+
+    const jenjangTag = selectedJenjang === 'all' ? 'Semua' : selectedJenjang;
+    const tanggal = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(
+      workbook,
+      `Rekap_Kecamatan_PAUDNI_${jenjangTag}_${tanggal}.xlsx`
+    );
+  };
+
+  const handleExportLembagaExcel = () => {
+    const rows = filteredLembaga.map((lem, idx) => ({
+      No: idx + 1,
+      'Nama Lembaga': lem.nama,
+      NPSN: lem.npsn || '-',
+      Jenjang: lem.jenjang,
+      Kecamatan: lem.kecamatan_nama || '-',
+      Desa: lem.desa || '-',
+      'Jumlah Siswa': Number(lem.total_siswa ?? 0),
+      'Status Unggah': lem.last_upload ? 'Sudah Unggah' : 'Belum Ada Data',
+      'Tanggal Unggah Terakhir': lem.last_upload
+        ? formatDateIndo(lem.last_upload)
+        : '-',
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+    worksheet['!cols'] = [
+      { wch: 6 },
+      { wch: 30 },
+      { wch: 14 },
+      { wch: 10 },
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 14 },
+      { wch: 16 },
+      { wch: 20 },
+    ];
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Rincian Lembaga');
+
+    const jenjangTag = selectedJenjang === 'all' ? 'Semua' : selectedJenjang;
+    const tanggal = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(
+      workbook,
+      `Rincian_Lembaga_PAUDNI_${jenjangTag}_${tanggal}.xlsx`
+    );
   };
 
   const hasActiveFilter =
@@ -691,7 +778,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Kolom Kanan (1 Col): Distribusi Jenjang & Navigasi Cepat */}
+        {/* Kolom Kanan (1 Col): Distribusi Jenjang & Cetak Rekapitulasi */}
         <div className="min-w-0 space-y-4">
           <Card>
             <div className="p-5 border-b border-slate-100">
@@ -777,30 +864,43 @@ export default function DashboardPage() {
           <Card className="bg-slate-900 text-white border-slate-800">
             <CardContent className="p-5">
               <h4 className="font-bold text-sm text-white mb-1">
-                Tampilan Berjenjang (Hierarki)
+                Cetak &amp; Ekspor Rekapitulasi
               </h4>
               <p className="text-xs text-slate-400 mb-4">
-                Telusuri data dari tingkat Kecamatan, pilih Lembaga, hingga rincian setiap peserta didik.
+                Unduh file Excel terstruktur sesuai filter aktif atau buka halaman laporan lengkap.
               </p>
               <div className="flex flex-col gap-2">
-                <Link href="/lembaga">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full justify-between bg-slate-800 text-white border-slate-700 hover:bg-slate-700"
-                    rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
-                  >
-                    Buka Direktori Lembaga
-                  </Button>
-                </Link>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportRekapKecamatanExcel}
+                  className="w-full justify-between bg-slate-800 text-white border-slate-700 hover:bg-slate-700"
+                  leftIcon={<Download className="w-3.5 h-3.5 text-emerald-400" />}
+                  rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
+                >
+                  Cetak Excel Rekap Kecamatan
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportLembagaExcel}
+                  className="w-full justify-between bg-slate-800 text-white border-slate-700 hover:bg-slate-700"
+                  leftIcon={<Download className="w-3.5 h-3.5 text-blue-400" />}
+                  rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
+                >
+                  Cetak Excel Rincian Lembaga
+                </Button>
                 <Link href="/laporan">
                   <Button
                     variant="outline"
                     size="sm"
                     className="w-full justify-between bg-slate-800 text-white border-slate-700 hover:bg-slate-700"
-                    rightIcon={<FileText className="w-3.5 h-3.5" />}
+                    leftIcon={<FileText className="w-3.5 h-3.5 text-slate-300" />}
+                    rightIcon={<ArrowRight className="w-3.5 h-3.5" />}
                   >
-                    Cetak Laporan Rekapitulasi
+                    Halaman Laporan Lengkap
                   </Button>
                 </Link>
               </div>
