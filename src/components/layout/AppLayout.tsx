@@ -17,10 +17,16 @@ import {
   ShieldAlert,
   Building2,
   Database,
+  KeyRound,
+  Eye,
+  EyeOff,
+  CheckCircle2,
 } from 'lucide-react';
 import { AppDataStore } from '@/lib/store';
 import { UserProfile, normalizeRole } from '@/lib/types';
 import { createClient } from '@/lib/supabase/client';
+import { Modal } from '@/components/ui/Modal';
+import { Button } from '@/components/ui/Button';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -39,6 +45,18 @@ export default function AppLayout({
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // State Modal Ganti Sandi Mandiri
+  const [isChangePassOpen, setIsChangePassOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showCurrentPass, setShowCurrentPass] = useState(false);
+  const [showNewPass, setShowNewPass] = useState(false);
+  const [showConfirmPass, setShowConfirmPass] = useState(false);
+  const [passError, setPassError] = useState('');
+  const [passSuccess, setPassSuccess] = useState('');
+  const [isSavingPass, setIsSavingPass] = useState(false);
 
   useEffect(() => {
     async function loadSession() {
@@ -92,6 +110,110 @@ export default function AppLayout({
     if (typeof window !== 'undefined') {
       localStorage.removeItem('boyolali_current_user');
       window.location.href = '/login';
+    }
+  };
+
+  const handleOpenChangePassword = () => {
+    setPassError('');
+    setPassSuccess('');
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowCurrentPass(false);
+    setShowNewPass(false);
+    setShowConfirmPass(false);
+    setMobileMenuOpen(false);
+    setIsChangePassOpen(true);
+  };
+
+  const handleSubmitChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+
+    setPassError('');
+    setPassSuccess('');
+
+    if (!currentPassword.trim()) {
+      setPassError('Kata sandi saat ini wajib diisi.');
+      return;
+    }
+
+    if (newPassword.trim().length < 6) {
+      setPassError('Kata sandi baru minimal 6 karakter.');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      setPassError('Konfirmasi kata sandi baru tidak sama.');
+      return;
+    }
+
+    if (newPassword === currentPassword) {
+      setPassError('Kata sandi baru harus berbeda dengan kata sandi saat ini.');
+      return;
+    }
+
+    setIsSavingPass(true);
+    try {
+      const res = await fetch('/api/pengguna', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: currentUser.id,
+          email: currentUser.email,
+          currentPassword,
+          password: newPassword.trim(),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPassError(data.error || 'Gagal memperbarui kata sandi.');
+        return;
+      }
+
+      if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem('boyolali_users_list');
+        if (saved) {
+          try {
+            const parsed = JSON.parse(saved);
+            if (Array.isArray(parsed)) {
+              const updated = parsed.map((item: Record<string, unknown>) =>
+                item.id === currentUser.id ||
+                  String(item.email || '').toLowerCase() === currentUser.email.toLowerCase()
+                  ? {
+                    ...item,
+                    password: newPassword.trim(),
+                    password_status: 'changed',
+                  }
+                  : item
+              );
+              localStorage.setItem('boyolali_users_list', JSON.stringify(updated));
+            }
+          } catch {
+            // abaikan jika parsing gagal
+          }
+        }
+      }
+
+      AppDataStore.addActivityLog(
+        'GANTI_PASSWORD',
+        `Mengganti kata sandi akun ${currentUser.nama} (${currentUser.email})`,
+        currentUser
+      );
+
+      setPassSuccess('Kata sandi berhasil diperbarui.');
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setTimeout(() => {
+        setIsChangePassOpen(false);
+        setPassSuccess('');
+      }, 1200);
+    } catch {
+      setPassError('Terjadi kesalahan jaringan saat mengganti kata sandi.');
+    } finally {
+      setIsSavingPass(false);
     }
   };
 
@@ -267,8 +389,8 @@ export default function AppLayout({
                 href={item.href}
                 onClick={() => setMobileMenuOpen(false)}
                 className={`flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition ${isActive
-                    ? 'bg-blue-700 text-white shadow-sm shadow-blue-600/30'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+                  ? 'bg-blue-700 text-white shadow-sm shadow-blue-600/30'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
                   }`}
               >
                 <Icon className={`w-4 h-4 ${isActive ? 'text-white' : 'text-slate-400'}`} />
@@ -278,9 +400,19 @@ export default function AppLayout({
           })}
         </nav>
 
-        {/* Logout Footer */}
-        <div className="p-4 border-t border-slate-100">
+        {/* Ganti Sandi & Logout Footer */}
+        <div className="p-4 border-t border-slate-100 space-y-1.5">
           <button
+            type="button"
+            onClick={handleOpenChangePassword}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-slate-700 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition"
+          >
+            <KeyRound className="w-4 h-4" />
+            <span>Ganti Sandi</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleLogout}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition"
           >
@@ -348,6 +480,130 @@ export default function AppLayout({
           )}
         </div>
       </main>
+
+      {/* Modal Ganti Sandi Mandiri */}
+      <Modal
+        isOpen={isChangePassOpen}
+        onClose={() => !isSavingPass && setIsChangePassOpen(false)}
+        title="Ganti Kata Sandi"
+      >
+        <form onSubmit={handleSubmitChangePassword} className="space-y-4 text-xs">
+          {passError && (
+            <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-700">
+              {passError}
+            </div>
+          )}
+
+          {passSuccess && (
+            <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{passSuccess}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Kata Sandi Saat Ini *
+            </label>
+            <div className="relative">
+              <input
+                type={showCurrentPass ? 'text' : 'password'}
+                required
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Masukkan kata sandi saat ini (misal: 123456)"
+                className="w-full border border-slate-300 rounded-lg pl-3 pr-9 py-2 outline-none focus:ring-1 focus:ring-blue-600 font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentPass(!showCurrentPass)}
+                aria-label={showCurrentPass ? 'Sembunyikan kata sandi saat ini' : 'Lihat kata sandi saat ini'}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 focus:outline-none"
+                tabIndex={-1}
+              >
+                {showCurrentPass ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Kata Sandi Baru *
+            </label>
+            <div className="relative">
+              <input
+                type={showNewPass ? 'text' : 'password'}
+                required
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="Minimal 6 karakter"
+                className="w-full border border-slate-300 rounded-lg pl-3 pr-9 py-2 outline-none focus:ring-1 focus:ring-blue-600 font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPass(!showNewPass)}
+                aria-label={showNewPass ? 'Sembunyikan kata sandi baru' : 'Lihat kata sandi baru'}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 focus:outline-none"
+                tabIndex={-1}
+              >
+                {showNewPass ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Konfirmasi Kata Sandi Baru *
+            </label>
+            <div className="relative">
+              <input
+                type={showConfirmPass ? 'text' : 'password'}
+                required
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Ulangi kata sandi baru"
+                className="w-full border border-slate-300 rounded-lg pl-3 pr-9 py-2 outline-none focus:ring-1 focus:ring-blue-600 font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPass(!showConfirmPass)}
+                aria-label={showConfirmPass ? 'Sembunyikan konfirmasi kata sandi' : 'Lihat konfirmasi kata sandi'}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 focus:outline-none"
+                tabIndex={-1}
+              >
+                {showConfirmPass ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isSavingPass}
+              onClick={() => setIsChangePassOpen(false)}
+            >
+              Batal
+            </Button>
+            <Button type="submit" variant="primary" size="sm" disabled={isSavingPass}>
+              {isSavingPass ? 'Menyimpan...' : 'Simpan Sandi Baru'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

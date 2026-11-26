@@ -20,6 +20,15 @@ function getAdminClient() {
     });
 }
 
+function getAnonClient() {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    if (!url || !anonKey) return null;
+    return createClient(url, anonKey, {
+        auth: { autoRefreshToken: false, persistSession: false },
+    });
+}
+
 export async function POST(req: NextRequest) {
     try {
         const supabaseAdmin = getAdminClient();
@@ -32,11 +41,22 @@ export async function POST(req: NextRequest) {
 
         const body = await req.json();
         const { nama, email, password, role, kecamatan_id, lembaga_id } = body;
+        const resolvedPassword =
+            typeof password === 'string' && password.trim().length > 0
+                ? password.trim()
+                : '123456';
+
+        if (resolvedPassword.length < 6) {
+            return NextResponse.json(
+                { error: 'Kata sandi minimal 6 karakter.' },
+                { status: 400 }
+            );
+        }
 
         const { data: created, error: createErr } =
             await supabaseAdmin.auth.admin.createUser({
                 email,
-                password: password || '123456',
+                password: resolvedPassword,
                 email_confirm: true,
                 user_metadata: { nama, role },
             });
@@ -78,14 +98,49 @@ export async function PATCH(req: NextRequest) {
             );
         }
 
-        const { id, password } = await req.json();
+        const { id, password, email, currentPassword } = await req.json();
+
+        if (!id) {
+            return NextResponse.json({ error: 'ID pengguna wajib disertakan.' }, { status: 400 });
+        }
+
+        const nextPassword =
+            typeof password === 'string' && password.trim().length > 0
+                ? password.trim()
+                : '123456';
+
+        if (nextPassword.length < 6) {
+            return NextResponse.json(
+                { error: 'Kata sandi baru minimal 6 karakter.' },
+                { status: 400 }
+            );
+        }
+
+        // Jika ganti sandi mandiri menyertakan email & currentPassword, verifikasi dulu sandi lama
+        if (email && currentPassword) {
+            const anonClient = getAnonClient();
+            if (anonClient) {
+                const { error: verifyErr } = await anonClient.auth.signInWithPassword({
+                    email: String(email).trim().toLowerCase(),
+                    password: String(currentPassword),
+                });
+                if (verifyErr) {
+                    return NextResponse.json(
+                        { error: 'Kata sandi saat ini tidak sesuai.' },
+                        { status: 400 }
+                    );
+                }
+            }
+        }
+
         const { error } = await supabaseAdmin.auth.admin.updateUserById(id, {
-            password: password || '123456',
+            password: nextPassword,
         });
 
         if (error) {
             return NextResponse.json({ error: error.message }, { status: 400 });
         }
+
         return NextResponse.json({ ok: true });
     } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : 'Terjadi kesalahan server.';
