@@ -11,6 +11,8 @@ import {
   Copy,
   Check,
   Trash2,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
 import { Card, CardContent } from '@/components/ui/Card';
@@ -114,7 +116,9 @@ export default function PenggunaPage() {
   const [formEmail, setFormEmail] = useState('');
   const [formRole, setFormRole] = useState<CreatableRole>('operator_sekolah');
   const [formKecamatanId, setFormKecamatanId] = useState('');
-  const [formLembagaId, setFormLembagaId] = useState('');
+  const [formLembagaNama, setFormLembagaNama] = useState('');
+  const [formPassword, setFormPassword] = useState(DEFAULT_PASSWORD);
+  const [showFormPassword, setShowFormPassword] = useState(false);
   const [formError, setFormError] = useState('');
   const [resetError, setResetError] = useState('');
 
@@ -135,7 +139,6 @@ export default function PenggunaPage() {
 
     const lem = AppDataStore.getLembagaList();
     setLembagaList(lem);
-    if (lem.length > 0 && !formLembagaId) setFormLembagaId(lem[0].id);
 
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('boyolali_users_list');
@@ -181,15 +184,41 @@ export default function PenggunaPage() {
     setTimeout(() => setAlertSuccess(''), 4000);
   };
 
+  const handleOpenAddModal = () => {
+    setFormError('');
+    setFormNama('');
+    setFormEmail('');
+    setFormRole('operator_sekolah');
+    setFormLembagaNama('');
+    setFormPassword(DEFAULT_PASSWORD);
+    setShowFormPassword(false);
+    if (kecamatanList.length > 0 && !formKecamatanId) {
+      setFormKecamatanId(kecamatanList[0].id);
+    }
+    setIsAddModalOpen(true);
+  };
+
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
 
     const cleanNama = formNama.trim();
     const cleanEmail = formEmail.trim().toLowerCase();
+    const cleanLembagaNama = formLembagaNama.trim();
+    const cleanPassword = formPassword.trim() || DEFAULT_PASSWORD;
 
     if (!cleanNama || !cleanEmail) {
       setFormError('Nama lengkap dan email wajib diisi.');
+      return;
+    }
+
+    if (formRole === 'operator_sekolah' && !cleanLembagaNama) {
+      setFormError('Lembaga terikat wajib diisi.');
+      return;
+    }
+
+    if (cleanPassword.length < 6) {
+      setFormError('Kata sandi minimal 6 karakter.');
       return;
     }
 
@@ -199,20 +228,22 @@ export default function PenggunaPage() {
     }
 
     const kecObj = kecamatanList.find((k) => k.id === formKecamatanId);
-    const lemObj = lembagaList.find((l) => l.id === formLembagaId);
+    const matchedLembaga = lembagaList.find(
+      (l) => l.nama.toLowerCase() === cleanLembagaNama.toLowerCase()
+    );
 
     const resolvedKecamatanId =
       formRole === 'admin_kecamatan'
         ? formKecamatanId
-        : lemObj?.kecamatan_id || null;
+        : matchedLembaga?.kecamatan_id || null;
     const resolvedKecamatanNama =
       formRole === 'admin_kecamatan'
         ? kecObj?.nama || null
-        : lemObj?.kecamatan_nama || null;
+        : matchedLembaga?.kecamatan_nama || null;
     const resolvedLembagaId =
-      formRole === 'operator_sekolah' ? formLembagaId : null;
+      formRole === 'operator_sekolah' ? matchedLembaga?.id || null : null;
     const resolvedLembagaNama =
-      formRole === 'operator_sekolah' ? lemObj?.nama || null : null;
+      formRole === 'operator_sekolah' ? cleanLembagaNama : null;
 
     setIsSubmitting(true);
     try {
@@ -222,10 +253,12 @@ export default function PenggunaPage() {
         body: JSON.stringify({
           nama: cleanNama,
           email: cleanEmail,
-          password: DEFAULT_PASSWORD,
+          password: cleanPassword,
           role: formRole,
           kecamatan_id: resolvedKecamatanId,
+          kecamatan_nama: resolvedKecamatanNama,
           lembaga_id: resolvedLembagaId,
+          lembaga_nama: resolvedLembagaNama,
         }),
       });
 
@@ -235,13 +268,16 @@ export default function PenggunaPage() {
         return;
       }
 
+      const passwordStatus =
+        cleanPassword === DEFAULT_PASSWORD ? ('default' as const) : ('changed' as const);
+
       const newUser: ManagedUser = {
         id: data.id || `usr-${Date.now()}`,
         nama: cleanNama,
         email: cleanEmail,
         role: formRole,
-        password: DEFAULT_PASSWORD,
-        password_status: 'default',
+        password: cleanPassword,
+        password_status: passwordStatus,
         kecamatan_id: resolvedKecamatanId,
         kecamatan_nama: resolvedKecamatanNama,
         lembaga_id: resolvedLembagaId,
@@ -260,8 +296,10 @@ export default function PenggunaPage() {
 
       setFormNama('');
       setFormEmail('');
+      setFormLembagaNama('');
+      setFormPassword(DEFAULT_PASSWORD);
       setIsAddModalOpen(false);
-      showToast(`Akun ${newUser.nama} berhasil dibuat (sandi: ${DEFAULT_PASSWORD}).`);
+      showToast(`Akun ${newUser.nama} berhasil dibuat (sandi: ${cleanPassword}).`);
     } catch {
       setFormError('Terjadi kesalahan jaringan saat menghubungi /api/pengguna.');
     } finally {
@@ -382,10 +420,7 @@ export default function PenggunaPage() {
         <Button
           variant="primary"
           size="sm"
-          onClick={() => {
-            setFormError('');
-            setIsAddModalOpen(true);
-          }}
+          onClick={handleOpenAddModal}
           leftIcon={<Plus className="w-4 h-4" />}
         >
           Buat Akun Baru
@@ -642,19 +677,45 @@ export default function PenggunaPage() {
               <label className="block font-semibold text-slate-700 mb-1">
                 Lembaga Terikat *
               </label>
-              <select
-                value={formLembagaId}
-                onChange={(e) => setFormLembagaId(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-1 focus:ring-blue-600 truncate"
-              >
-                {lembagaList.map((l) => (
-                  <option key={l.id} value={l.id}>
-                    {l.nama} ({l.jenjang} - Kec. {l.kecamatan_nama})
-                  </option>
-                ))}
-              </select>
+              <input
+                type="text"
+                required
+                value={formLembagaNama}
+                onChange={(e) => setFormLembagaNama(e.target.value)}
+                placeholder="Ketik nama lembaga secara manual (contoh: TK Negeri Pembina Boyolali)"
+                className="w-full border border-slate-300 rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-blue-600"
+              />
             </div>
           )}
+
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Kata Sandi (Password) *
+            </label>
+            <div className="relative">
+              <input
+                type={showFormPassword ? 'text' : 'password'}
+                required
+                value={formPassword}
+                onChange={(e) => setFormPassword(e.target.value)}
+                placeholder="Default: 123456"
+                className="w-full border border-slate-300 rounded-lg pl-3 pr-9 py-2 outline-none focus:ring-1 focus:ring-blue-600 font-mono"
+              />
+              <button
+                type="button"
+                onClick={() => setShowFormPassword(!showFormPassword)}
+                aria-label={showFormPassword ? 'Sembunyikan kata sandi' : 'Lihat kata sandi'}
+                className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 focus:outline-none"
+                tabIndex={-1}
+              >
+                {showFormPassword ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          </div>
 
           <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
             <Button
