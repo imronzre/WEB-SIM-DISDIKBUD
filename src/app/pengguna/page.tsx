@@ -129,7 +129,7 @@ export default function PenggunaPage() {
     }
   };
 
-  const loadData = () => {
+  const loadData = async () => {
     const user = AppDataStore.getCurrentUser();
     setCurrentUser(user);
 
@@ -140,19 +140,75 @@ export default function PenggunaPage() {
     const lem = AppDataStore.getLembagaList();
     setLembagaList(lem);
 
+    let localUsers: ManagedUser[] = INITIAL_MANAGED_USERS;
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('boyolali_users_list');
       if (saved) {
         try {
-          setUsersList(JSON.parse(saved));
-          return;
+          localUsers = JSON.parse(saved);
         } catch {
-          // fallback ke data awal
+          localUsers = INITIAL_MANAGED_USERS;
         }
       }
-      localStorage.setItem('boyolali_users_list', JSON.stringify(INITIAL_MANAGED_USERS));
     }
-    setUsersList(INITIAL_MANAGED_USERS);
+
+    // Tampilkan dulu data lokal agar instan
+    setUsersList(localUsers);
+
+    // Sinkronkan status sandi terbaru dari server (/api/pengguna)
+    try {
+      const res = await fetch('/api/pengguna', { cache: 'no-store' });
+      const data = await res.json().catch(() => ({}));
+
+      if (res.ok && Array.isArray(data.users) && data.users.length > 0) {
+        const dbUsers: ManagedUser[] = data.users;
+        const dbById = new Map<string, ManagedUser>();
+        const dbByEmail = new Map<string, ManagedUser>();
+
+        for (const d of dbUsers) {
+          if (d.id) dbById.set(d.id, d);
+          if (d.email) dbByEmail.set(d.email.trim().toLowerCase(), d);
+        }
+
+        const updatedLocal = localUsers.map((lu) => {
+          const match =
+            dbById.get(lu.id) || dbByEmail.get(lu.email.trim().toLowerCase());
+          if (!match) return lu;
+
+          const latestStatus = match.password_status || lu.password_status || 'default';
+          return {
+            ...lu,
+            id: match.id || lu.id,
+            nama: match.nama || lu.nama,
+            role: match.role || lu.role,
+            kecamatan_id: match.kecamatan_id ?? lu.kecamatan_id,
+            kecamatan_nama: match.kecamatan_nama ?? lu.kecamatan_nama,
+            lembaga_id: match.lembaga_id ?? lu.lembaga_id,
+            lembaga_nama: match.lembaga_nama ?? lu.lembaga_nama,
+            password_status: latestStatus,
+            password:
+              latestStatus === 'default'
+                ? DEFAULT_PASSWORD
+                : lu.password || DEFAULT_PASSWORD,
+          };
+        });
+
+        const existingEmails = new Set(
+          updatedLocal.map((u) => u.email.trim().toLowerCase())
+        );
+        const existingIds = new Set(updatedLocal.map((u) => u.id));
+
+        const onlyInDb = dbUsers.filter(
+          (d) =>
+            !existingIds.has(d.id) &&
+            (!d.email || !existingEmails.has(d.email.trim().toLowerCase()))
+        );
+
+        persistUsers([...onlyInDb, ...updatedLocal]);
+      }
+    } catch {
+      // tetap gunakan localUsers jika offline
+    }
   };
 
   useEffect(() => {
