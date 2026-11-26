@@ -173,27 +173,54 @@ export default function AppLayout({
       }
 
       if (typeof window !== 'undefined') {
+        const targetEmail = currentUser.email.trim().toLowerCase();
         const saved = localStorage.getItem('boyolali_users_list');
+        let parsed: Record<string, unknown>[] = [];
+
         if (saved) {
           try {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed)) {
-              const updated = parsed.map((item: Record<string, unknown>) =>
-                item.id === currentUser.id ||
-                  String(item.email || '').toLowerCase() === currentUser.email.toLowerCase()
-                  ? {
-                    ...item,
-                    password: newPassword.trim(),
-                    password_status: 'changed',
-                  }
-                  : item
-              );
-              localStorage.setItem('boyolali_users_list', JSON.stringify(updated));
-            }
+            const raw = JSON.parse(saved);
+            if (Array.isArray(raw)) parsed = raw;
           } catch {
-            // abaikan jika parsing gagal
+            parsed = [];
           }
         }
+
+        const exists = parsed.some(
+          (item) =>
+            item.id === currentUser.id ||
+            String(item.email || '').trim().toLowerCase() === targetEmail
+        );
+
+        const updated = exists
+          ? parsed.map((item) =>
+            item.id === currentUser.id ||
+              String(item.email || '').trim().toLowerCase() === targetEmail
+              ? {
+                ...item,
+                password: newPassword.trim(),
+                password_status: 'changed',
+              }
+              : item
+          )
+          : [
+            {
+              id: currentUser.id,
+              nama: currentUser.nama,
+              email: currentUser.email,
+              role: currentUser.role,
+              kecamatan_id: currentUser.kecamatan_id ?? null,
+              kecamatan_nama: currentUser.kecamatan_nama ?? null,
+              lembaga_id: currentUser.lembaga_id ?? null,
+              lembaga_nama: currentUser.lembaga_nama ?? null,
+              password: newPassword.trim(),
+              password_status: 'changed',
+              created_at: new Date().toISOString(),
+            },
+            ...parsed,
+          ];
+
+        localStorage.setItem('boyolali_users_list', JSON.stringify(updated));
       }
 
       AppDataStore.addActivityLog(
