@@ -6,9 +6,21 @@ import { Lock, Mail, ShieldCheck, AlertCircle, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/Button';
 import { AppDataStore, DEMO_PROFILES } from '@/lib/store';
 import { isSupabaseConfigured, createClient } from '@/lib/supabase/client';
-import { normalizeRole } from '@/lib/types';
+import { normalizeRole, UserProfile } from '@/lib/types';
 
 type LoginRole = 'admin_dinas' | 'admin_kecamatan' | 'operator_sekolah';
+
+function findLocalManagedUser(email: string): Partial<UserProfile> | undefined {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    const raw = localStorage.getItem('boyolali_users_list');
+    if (!raw) return undefined;
+    const list = JSON.parse(raw) as UserProfile[];
+    return list.find((u) => u.email?.trim().toLowerCase() === email);
+  } catch {
+    return undefined;
+  }
+}
 
 export default function LoginPage() {
   const router = useRouter();
@@ -50,8 +62,11 @@ export default function LoginPage() {
           .eq('id', data.user.id)
           .single();
 
+        const meta = data.user.user_metadata || {};
+        const localSaved = findLocalManagedUser(cleanEmail);
+
         const resolvedRole = normalizeRole(
-          profile?.role || data.user.user_metadata?.role || 'operator_sekolah'
+          profile?.role || meta.role || localSaved?.role || 'operator_sekolah'
         );
 
         if (resolvedRole !== selectedRole) {
@@ -61,22 +76,45 @@ export default function LoginPage() {
           return;
         }
 
+        const resolvedNama =
+          profile?.nama || meta.nama || localSaved?.nama || cleanEmail;
+        let resolvedKecId: string | null =
+          (profile?.kecamatan_id ?? meta.kecamatan_id ?? localSaved?.kecamatan_id) ?? null;
+        let resolvedKecNama: string | null =
+          (profile?.kecamatan_nama ?? meta.kecamatan_nama ?? localSaved?.kecamatan_nama) ?? null;
+        let resolvedLemId: string | null =
+          (profile?.lembaga_id ?? meta.lembaga_id ?? localSaved?.lembaga_id) ?? null;
+        let resolvedLemNama: string | null =
+          (profile?.lembaga_nama ?? meta.lembaga_nama ?? localSaved?.lembaga_nama) ?? null;
+
+        if (resolvedRole === 'operator_sekolah' && resolvedLemNama) {
+          const school = AppDataStore.addLembaga({
+            id: resolvedLemId || undefined,
+            nama: resolvedLemNama,
+            kecamatan_id: resolvedKecId,
+            kecamatan_nama: resolvedKecNama,
+          });
+          resolvedLemId = school.id ?? null;
+          resolvedLemNama = school.nama ?? resolvedLemNama ?? null;
+          resolvedKecId = (resolvedKecId || school.kecamatan_id) ?? null;
+          resolvedKecNama = (resolvedKecNama || school.kecamatan_nama) ?? null;
+        }
+
         AppDataStore.setCurrentUser({
           id: data.user.id,
           email: data.user.email || cleanEmail,
-          nama: profile?.nama || data.user.user_metadata?.nama || cleanEmail,
+          nama: resolvedNama,
           role: resolvedRole,
-          kecamatan_id: profile?.kecamatan_id ?? null,
-          kecamatan_nama: profile?.kecamatan_nama ?? null,
-          lembaga_id: profile?.lembaga_id ?? null,
-          lembaga_nama: profile?.lembaga_nama ?? null,
+          kecamatan_id: resolvedKecId ?? null,
+          kecamatan_nama: resolvedKecNama ?? null,
+          lembaga_id: resolvedLemId ?? null,
+          lembaga_nama: resolvedLemNama ?? null,
         });
 
         router.push('/dashboard');
         return;
       }
 
-      // Fallback lokal jika Supabase belum dikonfigurasi: cocokkan email & role manual
       const matchedProfile = Object.values(DEMO_PROFILES).find(
         (p) =>
           p.email.toLowerCase() === cleanEmail &&
