@@ -35,41 +35,132 @@ export default function LaporanPage() {
     setCurrentUser(user);
     const role = normalizeRole(user.role);
 
-    let l = AppDataStore.getLembagaList();
-    if (role === 'admin_kecamatan' && user.kecamatan_id) {
-      l = l.filter((item) => item.kecamatan_id === user.kecamatan_id);
-      setFilterKecamatan(user.kecamatan_id);
-    } else if (role === 'operator_sekolah' && user.lembaga_id) {
-      l = l.filter((item) => item.id === user.lembaga_id);
-      setFilterLembaga(user.lembaga_id);
-    }
-    setLembagaList(l);
+    const allLembaga = AppDataStore.getLembagaList();
+    const allKecamatan = AppDataStore.getKecamatan();
+    const allSiswa = AppDataStore.getSiswaList();
 
-    setKecamatanList(AppDataStore.getKecamatan());
-    setSiswaList(AppDataStore.getSiswaList());
+    if (role === 'operator_sekolah') {
+      const ownLembagaId = user.lembaga_id ? String(user.lembaga_id) : '';
+      const ownLembaga = ownLembagaId
+        ? allLembaga.filter((item) => String(item.id) === ownLembagaId)
+        : [];
+      const ownKecId = ownLembaga[0]?.kecamatan_id
+        ? String(ownLembaga[0].kecamatan_id)
+        : user.kecamatan_id
+          ? String(user.kecamatan_id)
+          : '';
+
+      setLembagaList(ownLembaga);
+      setKecamatanList(
+        ownKecId
+          ? allKecamatan.filter((k) => String(k.id) === ownKecId)
+          : []
+      );
+      setSiswaList(
+        ownLembagaId
+          ? allSiswa.filter((s) => String(s.lembaga_id) === ownLembagaId)
+          : []
+      );
+      setFilterKecamatan(ownKecId || 'none');
+      setFilterLembaga(ownLembagaId || 'none');
+    } else if (role === 'admin_kecamatan') {
+      const ownKecId = user.kecamatan_id ? String(user.kecamatan_id) : '';
+      const kecLembaga = ownKecId
+        ? allLembaga.filter((item) => String(item.kecamatan_id) === ownKecId)
+        : [];
+      const allowedLembagaIds = new Set(kecLembaga.map((item) => String(item.id)));
+
+      setLembagaList(kecLembaga);
+      setKecamatanList(
+        ownKecId
+          ? allKecamatan.filter((k) => String(k.id) === ownKecId)
+          : []
+      );
+      setSiswaList(
+        ownKecId
+          ? allSiswa.filter(
+            (s) =>
+              String(s.kecamatan_id) === ownKecId ||
+              allowedLembagaIds.has(String(s.lembaga_id))
+          )
+          : []
+      );
+      setFilterKecamatan(ownKecId || 'none');
+      setFilterLembaga('all');
+    } else {
+      // Admin Dinas
+      setLembagaList(allLembaga);
+      setKecamatanList(allKecamatan);
+      setSiswaList(allSiswa);
+      setFilterKecamatan('all');
+      setFilterLembaga('all');
+    }
   }, []);
 
   if (!currentUser) return null;
 
   const role = normalizeRole(currentUser.role);
+  const ownSchool = role === 'operator_sekolah' ? lembagaList[0] : undefined;
 
-  // Filtered Siswa
+  // Filtered Siswa (dengan pengaman mutlak per role)
   const filteredSiswa = siswaList.filter((s) => {
-    if (role === 'admin_kecamatan' && currentUser.kecamatan_id) {
-      if (s.kecamatan_id !== currentUser.kecamatan_id) return false;
-    }
-    if (role === 'operator_sekolah' && currentUser.lembaga_id) {
-      if (s.lembaga_id !== currentUser.lembaga_id) return false;
+    if (role === 'operator_sekolah') {
+      if (!currentUser.lembaga_id) return false;
+      if (String(s.lembaga_id) !== String(currentUser.lembaga_id)) return false;
     }
 
-    if (filterKecamatan !== 'all' && s.kecamatan_id !== filterKecamatan) return false;
-    if (filterLembaga !== 'all' && s.lembaga_id !== filterLembaga) return false;
-    if (filterJenjang !== 'all' && s.jenjang !== filterJenjang) return false;
+    if (role === 'admin_kecamatan') {
+      if (!currentUser.kecamatan_id) return false;
+      if (String(s.kecamatan_id) !== String(currentUser.kecamatan_id)) return false;
+    }
+
+    if (
+      role === 'admin_dinas' &&
+      filterKecamatan !== 'all' &&
+      String(s.kecamatan_id) !== String(filterKecamatan)
+    ) {
+      return false;
+    }
+
+    if (
+      role !== 'operator_sekolah' &&
+      filterLembaga !== 'all' &&
+      String(s.lembaga_id) !== String(filterLembaga)
+    ) {
+      return false;
+    }
+
+    if (
+      filterJenjang !== 'all' &&
+      String(s.jenjang || '').toUpperCase() !== filterJenjang
+    ) {
+      return false;
+    }
+
     return true;
   });
 
-  const selectedKecObj = kecamatanList.find((k) => k.id === filterKecamatan);
-  const selectedLemObj = lembagaList.find((l) => l.id === filterLembaga);
+  const selectedKecObj = kecamatanList.find(
+    (k) => String(k.id) === String(filterKecamatan)
+  );
+  const selectedLemObj =
+    role === 'operator_sekolah'
+      ? ownSchool
+      : lembagaList.find((l) => String(l.id) === String(filterLembaga));
+
+  const namaKecamatanHeader = selectedKecObj
+    ? `Kec. ${selectedKecObj.nama}`
+    : role === 'admin_kecamatan' && currentUser.kecamatan_nama
+      ? `Kec. ${currentUser.kecamatan_nama}`
+      : role === 'operator_sekolah' && ownSchool?.kecamatan_nama
+        ? `Kec. ${ownSchool.kecamatan_nama}`
+        : 'Semua Kecamatan';
+
+  const namaLembagaHeader = selectedLemObj
+    ? selectedLemObj.nama
+    : role === 'operator_sekolah'
+      ? currentUser.lembaga_nama || 'Lembaga Anda'
+      : 'Semua Lembaga';
 
   // Trigger Native Print Dialog
   const handlePrint = () => {
@@ -78,9 +169,21 @@ export default function LaporanPage() {
 
   // Export to Excel
   const handleExportExcel = () => {
+    const kecName =
+      selectedKecObj?.nama ??
+      (role === 'operator_sekolah'
+        ? ownSchool?.kecamatan_nama
+        : currentUser.kecamatan_nama) ??
+      undefined;
+
+    const lemName =
+      selectedLemObj?.nama ??
+      (role === 'operator_sekolah' ? currentUser.lembaga_nama : null) ??
+      undefined;
+
     const bytes = exportSiswaToExcel(filteredSiswa, {
-      kecamatan: selectedKecObj?.nama,
-      lembaga: selectedLemObj?.nama,
+      kecamatan: kecName,
+      lembaga: lemName,
       jenjang: filterJenjang !== 'all' ? filterJenjang : undefined,
     });
     const blob = new Blob([bytes as unknown as BlobPart], {
@@ -101,7 +204,13 @@ export default function LaporanPage() {
   return (
     <AppLayout
       title="Rekapitulasi & Cetak Laporan"
-      subtitle="Cetak dan ekspor dokumen laporan data peserta didik sesuai format standar dinas"
+      subtitle={
+        role === 'operator_sekolah'
+          ? `Cetak dan ekspor laporan peserta didik ${namaLembagaHeader}`
+          : role === 'admin_kecamatan'
+            ? `Cetak dan ekspor laporan peserta didik wilayah ${namaKecamatanHeader}`
+            : 'Cetak dan ekspor dokumen laporan data peserta didik sesuai format standar dinas'
+      }
       breadcrumbs={[{ label: 'Laporan' }]}
     >
       {/* Filter and Actions Bar (No-Print) */}
@@ -109,7 +218,7 @@ export default function LaporanPage() {
         <Card>
           <CardContent className="p-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* Kecamatan Filter */}
+              {/* Kecamatan Filter (Admin Dinas Only) */}
               {role === 'admin_dinas' && (
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1">
@@ -133,7 +242,7 @@ export default function LaporanPage() {
                 </div>
               )}
 
-              {/* Lembaga Filter */}
+              {/* Lembaga Filter (Admin Dinas & Admin Kecamatan) */}
               {role !== 'operator_sekolah' && (
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1">
@@ -148,7 +257,8 @@ export default function LaporanPage() {
                     {lembagaList
                       .filter(
                         (l) =>
-                          filterKecamatan === 'all' || l.kecamatan_id === filterKecamatan
+                          filterKecamatan === 'all' ||
+                          String(l.kecamatan_id) === String(filterKecamatan)
                       )
                       .map((l) => (
                         <option key={l.id} value={l.id}>
@@ -224,7 +334,7 @@ export default function LaporanPage() {
                 Kecamatan
               </span>
               <strong className="text-slate-900">
-                {selectedKecObj ? `Kec. ${selectedKecObj.nama}` : 'Semua Kecamatan'}
+                {namaKecamatanHeader}
               </strong>
             </div>
 
@@ -233,7 +343,7 @@ export default function LaporanPage() {
                 Lembaga
               </span>
               <strong className="text-slate-900">
-                {selectedLemObj ? selectedLemObj.nama : 'Semua Lembaga'}
+                {namaLembagaHeader}
               </strong>
             </div>
 
