@@ -45,6 +45,17 @@ interface KecamatanRecapRow {
 
 export default function DashboardPage() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [stats, setStats] = useState({
+    totalLembaga: 0,
+    totalSiswa: 0,
+    siswaTK: 0,
+    siswaKB: 0,
+    siswaSPS: 0,
+    siswaTPA: 0,
+    lembagaSudahUnggah: 0,
+    lembagaBelumUnggah: 0,
+    persenSudahUnggah: 0,
+  });
   const [lembagaList, setLembagaList] = useState<Lembaga[]>([]);
   const [kecamatanList, setKecamatanList] = useState<Kecamatan[]>([]);
 
@@ -59,40 +70,29 @@ export default function DashboardPage() {
     setCurrentUser(user);
     const role = normalizeRole(user.role);
 
+    const s = AppDataStore.getStats(user);
+    setStats(s);
+
     const allKec = AppDataStore.getKecamatan();
     let l = AppDataStore.getLembagaList();
 
-    if (role === 'operator_sekolah') {
-      // Terkunci hanya ke 1 lembaga milik akun operator
-      l = user.lembaga_id
-        ? l.filter((item) => String(item.id) === String(user.lembaga_id))
-        : [];
-
+    if (role === 'admin_kecamatan' && user.kecamatan_id) {
+      l = l.filter((item) => item.kecamatan_id === user.kecamatan_id);
+      setKecamatanList(allKec.filter((k) => k.id === user.kecamatan_id));
+      setFocusedKec(user.kecamatan_id);
+    } else if (role === 'operator_sekolah' && user.lembaga_id) {
+      l = l.filter((item) => item.id === user.lembaga_id);
       const ownLembaga = l[0];
-      const targetKecId = ownLembaga?.kecamatan_id ?? user.kecamatan_id;
-
-      setKecamatanList(
-        targetKecId
-          ? allKec.filter((k) => String(k.id) === String(targetKecId))
-          : []
-      );
-      setFocusedKec(targetKecId ? String(targetKecId) : 'none');
-    } else if (role === 'admin_kecamatan') {
-      // Terkunci hanya ke 1 kecamatan milik akun admin kecamatan
-      const targetKecId = user.kecamatan_id ? String(user.kecamatan_id) : '';
-      l = targetKecId
-        ? l.filter((item) => String(item.kecamatan_id) === targetKecId)
-        : [];
-      setKecamatanList(
-        targetKecId
-          ? allKec.filter((k) => String(k.id) === targetKecId)
-          : []
-      );
-      setFocusedKec(targetKecId || 'none');
+      if (ownLembaga) {
+        setKecamatanList(
+          allKec.filter((k) => k.id === ownLembaga.kecamatan_id)
+        );
+        setFocusedKec(ownLembaga.kecamatan_id);
+      } else {
+        setKecamatanList(allKec);
+      }
     } else {
-      // Admin Dinas melihat semua kecamatan & lembaga
       setKecamatanList(allKec);
-      setFocusedKec('all');
     }
 
     setLembagaList(l);
@@ -100,58 +100,9 @@ export default function DashboardPage() {
 
   const role = currentUser ? normalizeRole(currentUser.role) : 'admin_dinas';
 
-  // Statistik dihitung dari cakupan lembaga yang benar-benar menjadi hak akses akun
-  const stats = useMemo(() => {
-    let totalSiswa = 0;
-    let siswaKB = 0;
-    let siswaTK = 0;
-    let siswaSPS = 0;
-    let siswaTPA = 0;
-    let lembagaSudahUnggah = 0;
-
-    for (const lem of lembagaList) {
-      const count = Number(lem.total_siswa ?? 0);
-      totalSiswa += count;
-
-      const j = String(lem.jenjang).toUpperCase() as JenjangType;
-      if (j === 'KB') siswaKB += count;
-      else if (j === 'TK') siswaTK += count;
-      else if (j === 'SPS') siswaSPS += count;
-      else if (j === 'TPA') siswaTPA += count;
-
-      if (lem.last_upload) {
-        lembagaSudahUnggah += 1;
-      }
-    }
-
-    const totalLembaga = lembagaList.length;
-    const lembagaBelumUnggah = Math.max(0, totalLembaga - lembagaSudahUnggah);
-    const persenSudahUnggah =
-      totalLembaga > 0
-        ? Math.round((lembagaSudahUnggah / totalLembaga) * 100)
-        : 0;
-
-    return {
-      totalLembaga,
-      totalSiswa,
-      siswaTK,
-      siswaKB,
-      siswaSPS,
-      siswaTPA,
-      lembagaSudahUnggah,
-      lembagaBelumUnggah,
-      persenSudahUnggah,
-    };
-  }, [lembagaList]);
-
-  // Lembaga yang lolos filter jenjang (dan fokus kecamatan bila diklik dari tabel oleh admin_dinas)
   const filteredLembaga = useMemo(() => {
     return lembagaList.filter((item) => {
-      if (
-        role === 'admin_dinas' &&
-        focusedKec !== 'all' &&
-        String(item.kecamatan_id) !== focusedKec
-      ) {
+      if (focusedKec !== 'all' && item.kecamatan_id !== focusedKec) {
         return false;
       }
       if (
@@ -162,57 +113,50 @@ export default function DashboardPage() {
       }
       return true;
     });
-  }, [lembagaList, role, focusedKec, selectedJenjang]);
+  }, [lembagaList, focusedKec, selectedJenjang]);
 
-  // Rekapitulasi per kecamatan sesuai cakupan role + pencarian + jenjang
   const kecamatanRecapRows: KecamatanRecapRow[] = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
 
     const targetKecamatan = kecamatanList.filter((k) => {
-      if (
-        role === 'admin_dinas' &&
-        focusedKec !== 'all' &&
-        String(k.id) !== focusedKec
-      ) {
-        return false;
-      }
+      if (focusedKec !== 'all' && k.id !== focusedKec) return false;
       if (q && !k.nama.toLowerCase().includes(q)) return false;
       return true;
     });
 
     return targetKecamatan.map((kec) => {
       const lembagaInKec = filteredLembaga.filter(
-        (l) => String(l.kecamatan_id) === String(kec.id)
+        (l) => l.kecamatan_id === kec.id
       );
 
-      let sKB = 0;
-      let sTK = 0;
-      let sSPS = 0;
-      let sTPA = 0;
+      let siswaKB = 0;
+      let siswaTK = 0;
+      let siswaSPS = 0;
+      let siswaTPA = 0;
 
       for (const lem of lembagaInKec) {
         const count = Number(lem.total_siswa ?? 0);
         const j = String(lem.jenjang).toUpperCase() as JenjangType;
-        if (j === 'KB') sKB += count;
-        else if (j === 'TK') sTK += count;
-        else if (j === 'SPS') sSPS += count;
-        else if (j === 'TPA') sTPA += count;
+        if (j === 'KB') siswaKB += count;
+        else if (j === 'TK') siswaTK += count;
+        else if (j === 'SPS') siswaSPS += count;
+        else if (j === 'TPA') siswaTPA += count;
       }
 
-      const totalSiswa = sKB + sTK + sSPS + sTPA;
+      const totalSiswa = siswaKB + siswaTK + siswaSPS + siswaTPA;
 
       return {
-        kecamatanId: String(kec.id),
+        kecamatanId: kec.id,
         kecamatanNama: kec.nama,
         jumlahLembaga: lembagaInKec.length,
-        siswaKB: sKB,
-        siswaTK: sTK,
-        siswaSPS: sSPS,
-        siswaTPA: sTPA,
+        siswaKB,
+        siswaTK,
+        siswaSPS,
+        siswaTPA,
         totalSiswa,
       };
     });
-  }, [kecamatanList, filteredLembaga, role, focusedKec, searchQuery]);
+  }, [kecamatanList, filteredLembaga, focusedKec, searchQuery]);
 
   const recapTotals = useMemo(() => {
     return kecamatanRecapRows.reduce(
@@ -237,8 +181,6 @@ export default function DashboardPage() {
 
   if (!currentUser) return null;
 
-  const ownLembagaInfo = role === 'operator_sekolah' ? lembagaList[0] : undefined;
-
   const handleResetFilters = () => {
     if (role === 'admin_dinas') {
       setFocusedKec('all');
@@ -248,9 +190,7 @@ export default function DashboardPage() {
   };
 
   const handleFocusKecamatanLembaga = (kecamatanId: string) => {
-    if (role === 'admin_dinas') {
-      setFocusedKec(kecamatanId);
-    }
+    setFocusedKec(kecamatanId);
     lembagaSectionRef.current?.scrollIntoView({
       behavior: 'smooth',
       block: 'start',
@@ -351,8 +291,8 @@ export default function DashboardPage() {
         role === 'admin_dinas'
           ? 'Ringkasan data peserta didik dan rekapitulasi 22 kecamatan se-Kabupaten Boyolali'
           : role === 'admin_kecamatan'
-            ? `Ringkasan data sekolah dan peserta didik Kecamatan ${currentUser.kecamatan_nama || ''}`
-            : `Ringkasan data peserta didik ${ownLembagaInfo?.nama || currentUser.lembaga_nama || 'Lembaga Anda'}`
+            ? `Ringkasan data wilayah Korwil Kecamatan ${currentUser.kecamatan_nama}`
+            : `Ringkasan data peserta didik ${currentUser.lembaga_nama}`
       }
     >
       {/* Overview Cards */}
@@ -386,9 +326,7 @@ export default function DashboardPage() {
                 {stats.totalLembaga}
               </h3>
               <p className="text-[11px] text-indigo-600 mt-1">
-                {role === 'operator_sekolah'
-                  ? 'Lembaga akun Anda'
-                  : 'KB, TK, SPS, dan TPA'}
+                KB, TK, SPS, dan TPA
               </p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-500/20">
@@ -479,11 +417,7 @@ export default function DashboardPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 leading-snug">
-                    {role === 'admin_dinas'
-                      ? 'Rekapitulasi per Kecamatan'
-                      : role === 'admin_kecamatan'
-                        ? `Rekapitulasi Kecamatan ${currentUser.kecamatan_nama || ''}`
-                        : 'Rekapitulasi Wilayah & Lembaga Anda'}
+                    Rekapitulasi per Kecamatan
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
                     Klik jumlah lembaga untuk daftar sekolah, atau klik jumlah siswa per jenjang untuk rincian siswa
@@ -596,7 +530,7 @@ export default function DashboardPage() {
                         colSpan={8}
                         className="py-8 text-center text-slate-400"
                       >
-                        Tidak ada data kecamatan yang tersedia untuk akun Anda.
+                        Tidak ada kecamatan yang cocok dengan pencarian.
                       </td>
                     </tr>
                   ) : (
@@ -743,14 +677,10 @@ export default function DashboardPage() {
                   </div>
                   <div>
                     <h3 className="text-base font-bold text-slate-900">
-                      {role === 'operator_sekolah'
-                        ? 'Rincian Lembaga Anda'
-                        : role === 'admin_kecamatan'
-                          ? `Rincian Lembaga Kecamatan ${currentUser.kecamatan_nama || ''}`
-                          : 'Rincian Lembaga / Sekolah'}
+                      Rincian Lembaga / Sekolah
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
-                      Klik jumlah siswa atau tombol &ldquo;Lihat Siswa&rdquo; untuk membuka data lengkap peserta didik
+                      Klik jumlah siswa atau tombol &ldquo;Lihat Siswa&rdquo; untuk membuka data lengkap peserta didik per lembaga
                     </p>
                   </div>
                 </div>
@@ -777,7 +707,7 @@ export default function DashboardPage() {
                           colSpan={5}
                           className="text-center py-8 text-slate-400"
                         >
-                          Tidak ada data lembaga yang tersedia untuk cakupan akun ini.
+                          Tidak ada data lembaga yang cocok dengan filter yang dipilih.
                         </td>
                       </tr>
                     ) : (
@@ -919,7 +849,7 @@ export default function DashboardPage() {
                 Cetak &amp; Ekspor Rekapitulasi
               </h4>
               <p className="text-xs text-slate-400 mb-4">
-                Unduh file Excel terstruktur sesuai cakupan akun &amp; filter aktif atau buka halaman laporan lengkap.
+                Unduh file Excel terstruktur sesuai filter aktif atau buka halaman laporan lengkap.
               </p>
               <div className="flex flex-col gap-2">
                 <Button
