@@ -44,19 +44,8 @@ interface KecamatanRecapRow {
 
 export default function DashboardPage() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
-  const [stats, setStats] = useState({
-    totalLembaga: 0,
-    totalSiswa: 0,
-    siswaTK: 0,
-    siswaKB: 0,
-    siswaSPS: 0,
-    siswaTPA: 0,
-    lembagaSudahUnggah: 0,
-    lembagaBelumUnggah: 0,
-    persenSudahUnggah: 0,
-  });
-  const [lembagaList, setLembagaList] = useState<Lembaga[]>([]);
-  const [kecamatanList, setKecamatanList] = useState<Kecamatan[]>([]);
+  const [scopedLembaga, setScopedLembaga] = useState<Lembaga[]>([]);
+  const [scopedKecamatan, setScopedKecamatan] = useState<Kecamatan[]>([]);
 
   const [focusedKec, setFocusedKec] = useState<string>('all');
   const [selectedJenjang, setSelectedJenjang] = useState<JenjangFilter>('all');
@@ -69,63 +58,102 @@ export default function DashboardPage() {
     setCurrentUser(user);
     const role = normalizeRole(user.role);
 
-    const s = AppDataStore.getStats(user);
-    setStats(s);
-
     const allKec = AppDataStore.getKecamatan();
     const allLembaga = AppDataStore.getLembagaList();
 
-    setKecamatanList(allKec);
-
     if (role === 'operator_sekolah') {
-      // Rekapan seluruh kecamatan tetap bisa dilihat, tapi rincian lembaga/edit hanya sekolahnya sendiri
-      setLembagaList(
-        user.lembaga_id
-          ? allLembaga.filter((item) => String(item.id) === String(user.lembaga_id))
+      // Hanya sekolah yang diampu akun operator ini saja
+      const ownSchools = user.lembaga_id
+        ? allLembaga.filter((item) => String(item.id) === String(user.lembaga_id))
+        : [];
+
+      const kecIds = new Set<string>();
+      for (const sch of ownSchools) {
+        if (sch.kecamatan_id) kecIds.add(String(sch.kecamatan_id));
+      }
+      if (kecIds.size === 0 && user.kecamatan_id) {
+        kecIds.add(String(user.kecamatan_id));
+      }
+
+      setScopedLembaga(ownSchools);
+      setScopedKecamatan(
+        allKec.filter((k) => kecIds.has(String(k.id)))
+      );
+      setFocusedKec('all');
+    } else if (role === 'admin_kecamatan') {
+      // Hanya kecamatan dan sekolah di kecamatan yang diampu akun ini saja
+      const targetKecId = user.kecamatan_id ? String(user.kecamatan_id) : '';
+      const kecSchools = targetKecId
+        ? allLembaga.filter((item) => String(item.kecamatan_id) === targetKecId)
+        : [];
+
+      setScopedLembaga(kecSchools);
+      setScopedKecamatan(
+        targetKecId
+          ? allKec.filter((k) => String(k.id) === targetKecId)
           : []
       );
       setFocusedKec('all');
-    } else if (role === 'admin_kecamatan' && user.kecamatan_id) {
-      setLembagaList(
-        allLembaga.filter(
-          (item) => String(item.kecamatan_id) === String(user.kecamatan_id)
-        )
-      );
-      setFocusedKec(String(user.kecamatan_id));
     } else {
-      setLembagaList(allLembaga);
+      // Admin Dinas: seluruh kecamatan dan seluruh lembaga
+      setScopedLembaga(allLembaga);
+      setScopedKecamatan(allKec);
       setFocusedKec('all');
     }
   }, []);
 
   const role = currentUser ? normalizeRole(currentUser.role) : 'admin_dinas';
-  const canDrillRecap = role === 'admin_dinas';
+  const isAdminDinas = role === 'admin_dinas';
 
-  // Untuk rekap kecamatan: operator melihat rekapan seluruh kecamatan, admin dinas bisa fokus 1 kecamatan saat diklik
-  const recapSourceLembaga = useMemo(() => {
-    return lembagaList.filter((item) => {
-      if (
-        canDrillRecap &&
-        focusedKec !== 'all' &&
-        String(item.kecamatan_id) !== focusedKec
-      ) {
-        return false;
-      }
-      if (
-        selectedJenjang !== 'all' &&
-        String(item.jenjang).toUpperCase() !== selectedJenjang
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }, [lembagaList, canDrillRecap, focusedKec, selectedJenjang]);
+  // Kartu statistik & distribusi jenjang selalu menghitung cakupan sekolah yang diampu akun ini
+  const stats = useMemo(() => {
+    let totalSiswa = 0;
+    let siswaKB = 0;
+    let siswaTK = 0;
+    let siswaSPS = 0;
+    let siswaTPA = 0;
+    let lembagaSudahUnggah = 0;
 
-  // Untuk rincian lembaga: operator hanya melihat sekolahnya sendiri; admin dinas mengikuti filter fokus kecamatan & jenjang
+    for (const lem of scopedLembaga) {
+      const count = Number(lem.total_siswa ?? 0);
+      totalSiswa += count;
+
+      const j = String(lem.jenjang).toUpperCase() as JenjangType;
+      if (j === 'KB') siswaKB += count;
+      else if (j === 'TK') siswaTK += count;
+      else if (j === 'SPS') siswaSPS += count;
+      else if (j === 'TPA') siswaTPA += count;
+
+      if (lem.last_upload) {
+        lembagaSudahUnggah += 1;
+      }
+    }
+
+    const totalLembaga = scopedLembaga.length;
+    const lembagaBelumUnggah = Math.max(0, totalLembaga - lembagaSudahUnggah);
+    const persenSudahUnggah =
+      totalLembaga > 0
+        ? Math.round((lembagaSudahUnggah / totalLembaga) * 100)
+        : 0;
+
+    return {
+      totalLembaga,
+      totalSiswa,
+      siswaTK,
+      siswaKB,
+      siswaSPS,
+      siswaTPA,
+      lembagaSudahUnggah,
+      lembagaBelumUnggah,
+      persenSudahUnggah,
+    };
+  }, [scopedLembaga]);
+
+  // Lembaga yang tampil di rincian & dipakai menghitung rekap
   const filteredLembaga = useMemo(() => {
-    return lembagaList.filter((item) => {
+    return scopedLembaga.filter((item) => {
       if (
-        canDrillRecap &&
+        isAdminDinas &&
         focusedKec !== 'all' &&
         String(item.kecamatan_id) !== focusedKec
       ) {
@@ -139,14 +167,15 @@ export default function DashboardPage() {
       }
       return true;
     });
-  }, [lembagaList, canDrillRecap, focusedKec, selectedJenjang]);
+  }, [scopedLembaga, isAdminDinas, focusedKec, selectedJenjang]);
 
+  // Baris rekapitulasi: hanya kecamatan dalam cakupan akun & hanya menghitung lembaga dalam cakupan akun
   const kecamatanRecapRows: KecamatanRecapRow[] = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
 
-    const targetKecamatan = kecamatanList.filter((k) => {
+    const targetKecamatan = scopedKecamatan.filter((k) => {
       if (
-        canDrillRecap &&
+        isAdminDinas &&
         focusedKec !== 'all' &&
         String(k.id) !== focusedKec
       ) {
@@ -157,38 +186,38 @@ export default function DashboardPage() {
     });
 
     return targetKecamatan.map((kec) => {
-      const lembagaInKec = recapSourceLembaga.filter(
+      const lembagaInKec = filteredLembaga.filter(
         (l) => String(l.kecamatan_id) === String(kec.id)
       );
 
-      let siswaKB = 0;
-      let siswaTK = 0;
-      let siswaSPS = 0;
-      let siswaTPA = 0;
+      let sKB = 0;
+      let sTK = 0;
+      let sSPS = 0;
+      let sTPA = 0;
 
       for (const lem of lembagaInKec) {
         const count = Number(lem.total_siswa ?? 0);
         const j = String(lem.jenjang).toUpperCase() as JenjangType;
-        if (j === 'KB') siswaKB += count;
-        else if (j === 'TK') siswaTK += count;
-        else if (j === 'SPS') siswaSPS += count;
-        else if (j === 'TPA') siswaTPA += count;
+        if (j === 'KB') sKB += count;
+        else if (j === 'TK') sTK += count;
+        else if (j === 'SPS') sSPS += count;
+        else if (j === 'TPA') sTPA += count;
       }
 
-      const totalSiswa = siswaKB + siswaTK + siswaSPS + siswaTPA;
+      const totalSiswa = sKB + sTK + sSPS + sTPA;
 
       return {
         kecamatanId: String(kec.id),
         kecamatanNama: kec.nama,
         jumlahLembaga: lembagaInKec.length,
-        siswaKB,
-        siswaTK,
-        siswaSPS,
-        siswaTPA,
+        siswaKB: sKB,
+        siswaTK: sTK,
+        siswaSPS: sSPS,
+        siswaTPA: sTPA,
         totalSiswa,
       };
     });
-  }, [kecamatanList, recapSourceLembaga, canDrillRecap, focusedKec, searchQuery]);
+  }, [scopedKecamatan, filteredLembaga, isAdminDinas, focusedKec, searchQuery]);
 
   const recapTotals = useMemo(() => {
     return kecamatanRecapRows.reduce(
@@ -213,8 +242,10 @@ export default function DashboardPage() {
 
   if (!currentUser) return null;
 
+  const ownSchool = role === 'operator_sekolah' ? scopedLembaga[0] : undefined;
+
   const handleResetFilters = () => {
-    if (canDrillRecap) {
+    if (isAdminDinas) {
       setFocusedKec('all');
     }
     setSelectedJenjang('all');
@@ -222,7 +253,7 @@ export default function DashboardPage() {
   };
 
   const handleFocusKecamatanLembaga = (kecamatanId: string) => {
-    if (!canDrillRecap) return;
+    if (!isAdminDinas) return;
     setFocusedKec(kecamatanId);
     lembagaSectionRef.current?.scrollIntoView({
       behavior: 'smooth',
@@ -313,7 +344,7 @@ export default function DashboardPage() {
   };
 
   const hasActiveFilter =
-    (canDrillRecap && focusedKec !== 'all') ||
+    (isAdminDinas && focusedKec !== 'all') ||
     selectedJenjang !== 'all' ||
     searchQuery.trim().length > 0;
 
@@ -324,8 +355,8 @@ export default function DashboardPage() {
         role === 'admin_dinas'
           ? 'Ringkasan data peserta didik dan rekapitulasi 22 kecamatan se-Kabupaten Boyolali'
           : role === 'admin_kecamatan'
-            ? `Ringkasan data wilayah Korwil Kecamatan ${currentUser.kecamatan_nama}`
-            : `Rekapitulasi kecamatan & pengelolaan data ${currentUser.lembaga_nama || 'sekolah Anda'}`
+            ? `Rekapitulasi dan data sekolah di Kecamatan ${currentUser.kecamatan_nama || ''}`
+            : `Rekapitulasi & pengelolaan data ${ownSchool?.nama || currentUser.lembaga_nama || 'lembaga yang Anda ampu'}`
       }
     >
       {/* Overview Cards */}
@@ -359,7 +390,9 @@ export default function DashboardPage() {
                 {stats.totalLembaga}
               </h3>
               <p className="text-[11px] text-indigo-600 mt-1">
-                KB, TK, SPS, dan TPA
+                {role === 'operator_sekolah'
+                  ? 'Lembaga yang Anda ampu'
+                  : 'KB, TK, SPS, dan TPA'}
               </p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-500/20">
@@ -450,12 +483,16 @@ export default function DashboardPage() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h3 className="text-base font-bold text-slate-900 leading-snug">
-                    Rekapitulasi per Kecamatan
+                    {role === 'operator_sekolah'
+                      ? 'Rekapitulasi Kecamatan Lembaga Anda'
+                      : role === 'admin_kecamatan'
+                        ? `Rekapitulasi Kecamatan ${currentUser.kecamatan_nama || ''}`
+                        : 'Rekapitulasi per Kecamatan'}
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">
-                    {canDrillRecap
+                    {isAdminDinas
                       ? 'Klik jumlah lembaga untuk daftar sekolah, atau klik jumlah siswa per jenjang untuk rincian siswa'
-                      : 'Rekapitulasi data per kecamatan (tampilan pantauan, rincian dan pengelolaan data hanya untuk sekolah Anda)'}
+                      : 'Menampilkan data rekapitulasi khusus sekolah/wilayah yang diampu akun ini'}
                   </p>
                 </div>
 
@@ -565,7 +602,7 @@ export default function DashboardPage() {
                         colSpan={8}
                         className="py-8 text-center text-slate-400"
                       >
-                        Tidak ada kecamatan yang cocok dengan pencarian.
+                        Tidak ada data kecamatan yang sesuai dengan filter/cakupan akun.
                       </td>
                     </tr>
                   ) : (
@@ -583,7 +620,7 @@ export default function DashboardPage() {
 
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.jumlahLembaga > 0 ? (
-                            canDrillRecap ? (
+                            isAdminDinas ? (
                               <button
                                 type="button"
                                 onClick={() =>
@@ -606,7 +643,7 @@ export default function DashboardPage() {
 
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.siswaKB > 0 ? (
-                            canDrillRecap ? (
+                            isAdminDinas ? (
                               <Link
                                 href={`/siswa?kecamatan_id=${row.kecamatanId}&jenjang=KB`}
                                 title={`Lihat data siswa KB di Kec. ${row.kecamatanNama}`}
@@ -626,7 +663,7 @@ export default function DashboardPage() {
 
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.siswaTK > 0 ? (
-                            canDrillRecap ? (
+                            isAdminDinas ? (
                               <Link
                                 href={`/siswa?kecamatan_id=${row.kecamatanId}&jenjang=TK`}
                                 title={`Lihat data siswa TK di Kec. ${row.kecamatanNama}`}
@@ -646,7 +683,7 @@ export default function DashboardPage() {
 
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.siswaSPS > 0 ? (
-                            canDrillRecap ? (
+                            isAdminDinas ? (
                               <Link
                                 href={`/siswa?kecamatan_id=${row.kecamatanId}&jenjang=SPS`}
                                 title={`Lihat data siswa SPS di Kec. ${row.kecamatanNama}`}
@@ -666,7 +703,7 @@ export default function DashboardPage() {
 
                         <td className="py-2.5 px-3 border-r border-slate-100 text-center">
                           {row.siswaTPA > 0 ? (
-                            canDrillRecap ? (
+                            isAdminDinas ? (
                               <Link
                                 href={`/siswa?kecamatan_id=${row.kecamatanId}&jenjang=TPA`}
                                 title={`Lihat data siswa TPA di Kec. ${row.kecamatanNama}`}
@@ -686,7 +723,7 @@ export default function DashboardPage() {
 
                         <td className="py-2.5 px-3 text-center font-bold text-slate-900 bg-slate-50/50">
                           {row.totalSiswa > 0 ? (
-                            canDrillRecap ? (
+                            isAdminDinas ? (
                               <Link
                                 href={`/siswa?kecamatan_id=${row.kecamatanId}`}
                                 className="hover:text-blue-700 hover:underline"
@@ -747,12 +784,12 @@ export default function DashboardPage() {
                   <div>
                     <h3 className="text-base font-bold text-slate-900">
                       {role === 'operator_sekolah'
-                        ? 'Lembaga / Sekolah Anda'
+                        ? 'Lembaga yang Anda Ampu'
                         : 'Rincian Lembaga / Sekolah'}
                     </h3>
                     <p className="text-xs text-slate-500 mt-0.5">
                       {role === 'operator_sekolah'
-                        ? 'Kelola dan lihat data peserta didik milik sekolah Anda sendiri'
+                        ? 'Hanya menampilkan lembaga yang diampu akun Anda untuk dikelola datanya'
                         : 'Klik jumlah siswa atau tombol "Lihat Siswa" untuk membuka data lengkap peserta didik per lembaga'}
                     </p>
                   </div>
@@ -780,7 +817,7 @@ export default function DashboardPage() {
                           colSpan={5}
                           className="text-center py-8 text-slate-400"
                         >
-                          Tidak ada data lembaga yang cocok dengan filter yang dipilih.
+                          Tidak ada data lembaga dalam cakupan akun Anda.
                         </td>
                       </tr>
                     ) : (
@@ -924,7 +961,7 @@ export default function DashboardPage() {
                 Cetak &amp; Ekspor Rekapitulasi
               </h4>
               <p className="text-xs text-slate-400 mb-4">
-                Unduh file Excel terstruktur sesuai filter aktif atau buka halaman laporan lengkap.
+                Unduh file Excel terstruktur sesuai cakupan akun &amp; filter aktif atau buka halaman laporan lengkap.
               </p>
               <div className="flex flex-col gap-2">
                 <Button

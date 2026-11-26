@@ -44,8 +44,8 @@ function SiswaContent() {
 
   // Filters
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedKecamatan, setSelectedKecamatan] = useState(preselectedKecamatan);
-  const [selectedLembaga, setSelectedLembaga] = useState(preselectedLembaga);
+  const [selectedKecamatan, setSelectedKecamatan] = useState('all');
+  const [selectedLembaga, setSelectedLembaga] = useState('all');
   const [selectedJenjang, setSelectedJenjang] = useState(preselectedJenjang);
 
   // Pagination
@@ -73,25 +73,83 @@ function SiswaContent() {
     const role = normalizeRole(user.role);
 
     const allLembaga = AppDataStore.getLembagaList();
-    let l = allLembaga;
+    const allKecamatan = AppDataStore.getKecamatan();
+    const allSiswa = AppDataStore.getSiswaList();
 
-    if (role === 'admin_kecamatan' && user.kecamatan_id) {
-      l = l.filter((item) => item.kecamatan_id === user.kecamatan_id);
-      setSelectedKecamatan(user.kecamatan_id);
-    } else if (role === 'operator_sekolah' && user.lembaga_id) {
-      l = l.filter((item) => item.id === user.lembaga_id);
-      setSelectedLembaga(user.lembaga_id);
-    } else if (preselectedLembaga !== 'all') {
-      const targetLembaga = allLembaga.find((item) => item.id === preselectedLembaga);
-      if (targetLembaga) {
-        setSelectedKecamatan(targetLembaga.kecamatan_id);
-        setSelectedLembaga(targetLembaga.id);
+    if (role === 'operator_sekolah') {
+      const ownLembagaId = user.lembaga_id ? String(user.lembaga_id) : '';
+      const ownLembaga = ownLembagaId
+        ? allLembaga.filter((item) => String(item.id) === ownLembagaId)
+        : [];
+      const ownKecId = ownLembaga[0]?.kecamatan_id
+        ? String(ownLembaga[0].kecamatan_id)
+        : user.kecamatan_id
+          ? String(user.kecamatan_id)
+          : '';
+
+      setLembagaList(ownLembaga);
+      setKecamatanList(
+        ownKecId
+          ? allKecamatan.filter((k) => String(k.id) === ownKecId)
+          : []
+      );
+      setSiswaList(
+        ownLembagaId
+          ? allSiswa.filter((s) => String(s.lembaga_id) === ownLembagaId)
+          : []
+      );
+      setSelectedKecamatan('all');
+      setSelectedLembaga(ownLembagaId || 'none');
+    } else if (role === 'admin_kecamatan') {
+      const ownKecId = user.kecamatan_id ? String(user.kecamatan_id) : '';
+      const kecLembaga = ownKecId
+        ? allLembaga.filter((item) => String(item.kecamatan_id) === ownKecId)
+        : [];
+      const allowedLembagaIds = new Set(kecLembaga.map((item) => String(item.id)));
+
+      setLembagaList(kecLembaga);
+      setKecamatanList(
+        ownKecId
+          ? allKecamatan.filter((k) => String(k.id) === ownKecId)
+          : []
+      );
+      setSiswaList(
+        ownKecId
+          ? allSiswa.filter(
+            (s) =>
+              String(s.kecamatan_id) === ownKecId ||
+              allowedLembagaIds.has(String(s.lembaga_id))
+          )
+          : []
+      );
+      setSelectedKecamatan(ownKecId || 'none');
+      if (
+        preselectedLembaga !== 'all' &&
+        allowedLembagaIds.has(String(preselectedLembaga))
+      ) {
+        setSelectedLembaga(String(preselectedLembaga));
+      } else {
+        setSelectedLembaga('all');
+      }
+    } else {
+      // Admin Dinas
+      setLembagaList(allLembaga);
+      setKecamatanList(allKecamatan);
+      setSiswaList(allSiswa);
+
+      if (preselectedLembaga !== 'all') {
+        const targetLembaga = allLembaga.find(
+          (item) => String(item.id) === String(preselectedLembaga)
+        );
+        if (targetLembaga) {
+          setSelectedKecamatan(String(targetLembaga.kecamatan_id));
+          setSelectedLembaga(String(targetLembaga.id));
+        }
+      } else {
+        setSelectedKecamatan(preselectedKecamatan);
+        setSelectedLembaga('all');
       }
     }
-
-    setLembagaList(l);
-    setKecamatanList(AppDataStore.getKecamatan());
-    setSiswaList(AppDataStore.getSiswaList());
   };
 
   useEffect(() => {
@@ -101,21 +159,36 @@ function SiswaContent() {
   if (!currentUser) return null;
 
   const role = normalizeRole(currentUser.role);
+  const ownSchool = role === 'operator_sekolah' ? lembagaList[0] : undefined;
 
-  // Filter Logic
+  // Filter Logic (lapis kedua di UI)
   const filteredSiswa = siswaList.filter((s) => {
-    // Role guard: kecamatan only sees own kecamatan
-    if (role === 'admin_kecamatan' && currentUser.kecamatan_id) {
-      if (s.kecamatan_id !== currentUser.kecamatan_id) return false;
-    }
-    // Role guard: lembaga only sees own lembaga
-    if (role === 'operator_sekolah' && currentUser.lembaga_id) {
-      if (s.lembaga_id !== currentUser.lembaga_id) return false;
+    if (role === 'operator_sekolah') {
+      if (!currentUser.lembaga_id) return false;
+      if (String(s.lembaga_id) !== String(currentUser.lembaga_id)) return false;
     }
 
-    // UI filters
-    if (selectedKecamatan !== 'all' && s.kecamatan_id !== selectedKecamatan) return false;
-    if (selectedLembaga !== 'all' && s.lembaga_id !== selectedLembaga) return false;
+    if (role === 'admin_kecamatan') {
+      if (!currentUser.kecamatan_id) return false;
+      if (String(s.kecamatan_id) !== String(currentUser.kecamatan_id)) return false;
+    }
+
+    if (
+      role === 'admin_dinas' &&
+      selectedKecamatan !== 'all' &&
+      String(s.kecamatan_id) !== String(selectedKecamatan)
+    ) {
+      return false;
+    }
+
+    if (
+      role !== 'operator_sekolah' &&
+      selectedLembaga !== 'all' &&
+      String(s.lembaga_id) !== String(selectedLembaga)
+    ) {
+      return false;
+    }
+
     if (
       selectedJenjang !== 'all' &&
       String(s.jenjang || '').toUpperCase() !== selectedJenjang
@@ -129,7 +202,8 @@ function SiswaContent() {
       const matchNisn = s.nisn ? s.nisn.includes(q) : false;
       const matchAlamat = s.alamat.toLowerCase().includes(q);
       const matchOrtu =
-        s.nama_ayah.toLowerCase().includes(q) || s.nama_ibu.toLowerCase().includes(q);
+        s.nama_ayah.toLowerCase().includes(q) ||
+        s.nama_ibu.toLowerCase().includes(q);
       return matchNama || matchNisn || matchAlamat || matchOrtu;
     }
     return true;
@@ -153,7 +227,7 @@ function SiswaContent() {
     setFormNamaIbu('');
     setFormLembagaId(
       role === 'operator_sekolah' && currentUser.lembaga_id
-        ? currentUser.lembaga_id
+        ? String(currentUser.lembaga_id)
         : lembagaList[0]?.id || ''
     );
     setFormError('');
@@ -162,6 +236,12 @@ function SiswaContent() {
 
   // Open Modal Edit
   const handleOpenEdit = (s: Siswa) => {
+    if (
+      role === 'operator_sekolah' &&
+      String(s.lembaga_id) !== String(currentUser.lembaga_id)
+    ) {
+      return;
+    }
     setEditingSiswa(s);
     setFormNisn(s.nisn || '');
     setFormNama(s.nama);
@@ -169,7 +249,11 @@ function SiswaContent() {
     setFormAlamat(s.alamat);
     setFormNamaAyah(s.nama_ayah);
     setFormNamaIbu(s.nama_ibu);
-    setFormLembagaId(s.lembaga_id);
+    setFormLembagaId(
+      role === 'operator_sekolah' && currentUser.lembaga_id
+        ? String(currentUser.lembaga_id)
+        : s.lembaga_id
+    );
     setFormError('');
     setIsModalOpen(true);
   };
@@ -179,6 +263,15 @@ function SiswaContent() {
     e.preventDefault();
     setFormError('');
 
+    const targetLembagaId =
+      role === 'operator_sekolah' && currentUser.lembaga_id
+        ? String(currentUser.lembaga_id)
+        : formLembagaId;
+
+    if (!targetLembagaId) {
+      setFormError('Akun Anda belum terhubung dengan lembaga sekolah.');
+      return;
+    }
     if (!formNama.trim()) {
       setFormError('Nama peserta didik wajib diisi.');
       return;
@@ -210,7 +303,7 @@ function SiswaContent() {
           alamat: formAlamat.trim(),
           nama_ayah: formNamaAyah.trim(),
           nama_ibu: formNamaIbu.trim(),
-          lembaga_id: formLembagaId,
+          lembaga_id: targetLembagaId,
         },
         currentUser
       );
@@ -224,6 +317,16 @@ function SiswaContent() {
 
   // Delete Siswa
   const handleDeleteSiswa = (id: string) => {
+    const targetSiswa = siswaList.find((item) => item.id === id);
+    if (
+      role === 'operator_sekolah' &&
+      (!targetSiswa ||
+        String(targetSiswa.lembaga_id) !== String(currentUser.lembaga_id))
+    ) {
+      setDeleteConfirmId(null);
+      return;
+    }
+
     if (AppDataStore.deleteSiswa(id, currentUser)) {
       setDeleteConfirmId(null);
       loadData();
@@ -249,7 +352,13 @@ function SiswaContent() {
   return (
     <AppLayout
       title="Manajemen Peserta Didik"
-      subtitle="Kelola, cari, dan telusuri data siswa jenjang TK, KB, SPS, dan TPA"
+      subtitle={
+        role === 'operator_sekolah'
+          ? `Kelola data peserta didik ${ownSchool?.nama || currentUser.lembaga_nama || 'lembaga yang Anda ampu'}`
+          : role === 'admin_kecamatan'
+            ? `Data peserta didik wilayah Kecamatan ${currentUser.kecamatan_nama || ''}`
+            : 'Kelola, cari, dan telusuri data siswa jenjang TK, KB, SPS, dan TPA'
+      }
       breadcrumbs={[{ label: 'Data Siswa' }]}
     >
       {/* Action Bar & Quick Stats */}
@@ -257,6 +366,9 @@ function SiswaContent() {
         <div>
           <span className="text-xs font-semibold text-slate-500">
             Ditemukan <strong className="text-blue-700">{filteredSiswa.length}</strong> peserta didik
+            {role === 'operator_sekolah' && (ownSchool?.nama || currentUser.lembaga_nama)
+              ? ` di ${ownSchool?.nama || currentUser.lembaga_nama}`
+              : ''}
           </span>
         </div>
 
@@ -288,7 +400,7 @@ function SiswaContent() {
         <CardContent className="p-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
             {/* Search */}
-            <div>
+            <div className={role === 'operator_sekolah' ? 'sm:col-span-2 lg:col-span-3' : ''}>
               <label className="block text-[11px] font-semibold text-slate-600 mb-1">
                 Pencarian (Nama / NISN / Alamat)
               </label>
@@ -307,7 +419,7 @@ function SiswaContent() {
               </div>
             </div>
 
-            {/* Filter Kecamatan (Admin Only) */}
+            {/* Filter Kecamatan (Admin Dinas Only) */}
             {role === 'admin_dinas' && (
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
@@ -332,7 +444,7 @@ function SiswaContent() {
               </div>
             )}
 
-            {/* Filter Lembaga (Admin & Kecamatan) */}
+            {/* Filter Lembaga (Admin Dinas & Admin Kecamatan) */}
             {role !== 'operator_sekolah' && (
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
@@ -350,7 +462,8 @@ function SiswaContent() {
                   {lembagaList
                     .filter(
                       (l) =>
-                        selectedKecamatan === 'all' || l.kecamatan_id === selectedKecamatan
+                        selectedKecamatan === 'all' ||
+                        String(l.kecamatan_id) === String(selectedKecamatan)
                     )
                     .map((l) => (
                       <option key={l.id} value={l.id}>
@@ -533,7 +646,7 @@ function SiswaContent() {
             </div>
           )}
 
-          {/* Pilih Lembaga (Jika Admin) */}
+          {/* Pilih Lembaga (Jika Admin Dinas) */}
           {role === 'admin_dinas' ? (
             <div>
               <label className="block font-semibold text-slate-700 mb-1">
@@ -554,7 +667,7 @@ function SiswaContent() {
           ) : (
             <div className="p-2.5 bg-blue-50 rounded-lg text-blue-900 border border-blue-100">
               <span className="font-bold">Lembaga: </span>
-              {currentUser.lembaga_nama}
+              {ownSchool?.nama || currentUser.lembaga_nama || 'Lembaga tidak terdeteksi'}
             </div>
           )}
 
