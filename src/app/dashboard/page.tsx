@@ -293,8 +293,8 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* Quick Action CTA */}
-      {role !== 'admin_kecamatan' && (
+      {/* Quick Action CTA: Khusus Operator Sekolah */}
+      {role === 'operator_sekolah' && (
         <div className="mb-6 bg-gradient-to-r from-blue-700 to-indigo-800 rounded-2xl p-6 text-white shadow-lg flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/20 text-blue-100 text-xs font-semibold mb-2">
