@@ -268,6 +268,20 @@ function saveToStorage<T>(key: string, data: T): void {
   }
 }
 
+function inferJenjangFromName(nama: string): 'TK' | 'KB' | 'SPS' | 'TPA' {
+  const upper = nama.toUpperCase();
+  if (upper.includes('KB ') || upper.startsWith('KB') || upper.includes('KELOMPOK BERMAIN')) {
+    return 'KB';
+  }
+  if (upper.includes('SPS') || upper.includes('POSYANDU')) {
+    return 'SPS';
+  }
+  if (upper.includes('TPA') || upper.includes('PENITIPAN')) {
+    return 'TPA';
+  }
+  return 'TK';
+}
+
 export class AppDataStore {
   static getCurrentUser(): UserProfile {
     return loadFromStorage<UserProfile>('current_user', DEMO_PROFILES.admin);
@@ -291,12 +305,16 @@ export class AppDataStore {
     const siswaList = this.getSiswaList();
 
     const enriched = all.map((lem) => {
-      const count = siswaList.filter((s) => s.lembaga_id === lem.id).length;
+      const count = siswaList.filter(
+        (s) => String(s.lembaga_id) === String(lem.id)
+      ).length;
       return { ...lem, total_siswa: count };
     });
 
     return enriched.filter((l) => {
-      if (filter?.kecamatan_id && l.kecamatan_id !== filter.kecamatan_id) return false;
+      if (filter?.kecamatan_id && String(l.kecamatan_id) !== String(filter.kecamatan_id)) {
+        return false;
+      }
       if (filter?.jenjang && l.jenjang !== filter.jenjang) return false;
       if (filter?.q) {
         const query = filter.q.toLowerCase();
@@ -311,13 +329,65 @@ export class AppDataStore {
   }
 
   static getLembagaById(id: string): Lembaga | undefined {
-    return this.getLembagaList().find((l) => l.id === id);
+    return this.getLembagaList().find((l) => String(l.id) === String(id));
+  }
+
+  static addLembaga(data: {
+    id?: string;
+    nama: string;
+    kecamatan_id?: string | null;
+    kecamatan_nama?: string | null;
+    jenjang?: 'TK' | 'KB' | 'SPS' | 'TPA';
+    desa?: string;
+    alamat?: string;
+  }): Lembaga {
+    const rawList = loadFromStorage<Lembaga[]>('lembaga', INITIAL_LEMBAGA);
+    const kecList = this.getKecamatan();
+
+    const matchedById = data.id
+      ? rawList.find((l) => String(l.id) === String(data.id))
+      : undefined;
+    if (matchedById) return matchedById;
+
+    const matchedByName = rawList.find(
+      (l) => l.nama.trim().toLowerCase() === data.nama.trim().toLowerCase()
+    );
+    if (matchedByName) return matchedByName;
+
+    const kecObj = kecList.find(
+      (k) =>
+        (data.kecamatan_id && String(k.id) === String(data.kecamatan_id)) ||
+        (data.kecamatan_nama &&
+          k.nama.toLowerCase() === data.kecamatan_nama.trim().toLowerCase())
+    );
+
+    const newLembaga: Lembaga = {
+      id: data.id || `lem-${Date.now()}`,
+      nama: data.nama.trim(),
+      npsn: null,
+      jenjang: data.jenjang || inferJenjangFromName(data.nama),
+      kecamatan_id: kecObj?.id || data.kecamatan_id || 'kec-boyolali',
+      kecamatan_nama: kecObj?.nama || data.kecamatan_nama || 'Boyolali',
+      desa: data.desa || '-',
+      alamat: data.alamat || '-',
+      status: 'Swasta',
+      kontak: null,
+      aktif: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      total_siswa: 0,
+      last_upload: null,
+    };
+
+    rawList.unshift(newLembaga);
+    saveToStorage('lembaga', rawList);
+    return newLembaga;
   }
 
   static saveLembaga(data: Partial<Lembaga>, user: UserProfile): Lembaga {
     const list = loadFromStorage<Lembaga[]>('lembaga', INITIAL_LEMBAGA);
     const kecList = this.getKecamatan();
-    const kec = kecList.find((k) => k.id === data.kecamatan_id);
+    const kec = kecList.find((k) => String(k.id) === String(data.kecamatan_id));
 
     if (isSupabaseConfigured()) {
       try {
@@ -353,7 +423,7 @@ export class AppDataStore {
     }
 
     if (data.id) {
-      const index = list.findIndex((l) => l.id === data.id);
+      const index = list.findIndex((l) => String(l.id) === String(data.id));
       if (index !== -1) {
         list[index] = {
           ...list[index],
@@ -399,10 +469,10 @@ export class AppDataStore {
     let list = loadFromStorage<Siswa[]>('siswa', INITIAL_SISWA);
 
     if (filter?.kecamatan_id) {
-      list = list.filter((s) => s.kecamatan_id === filter.kecamatan_id);
+      list = list.filter((s) => String(s.kecamatan_id) === String(filter.kecamatan_id));
     }
     if (filter?.lembaga_id) {
-      list = list.filter((s) => s.lembaga_id === filter.lembaga_id);
+      list = list.filter((s) => String(s.lembaga_id) === String(filter.lembaga_id));
     }
     if (filter?.jenjang) {
       list = list.filter((s) => s.jenjang === filter.jenjang);
@@ -424,7 +494,16 @@ export class AppDataStore {
 
   static saveSiswa(data: Partial<Siswa>, user: UserProfile): Siswa {
     const list = loadFromStorage<Siswa[]>('siswa', INITIAL_SISWA);
-    const lem = this.getLembagaById(data.lembaga_id || '');
+    let lem = data.lembaga_id ? this.getLembagaById(String(data.lembaga_id)) : undefined;
+
+    if (!lem && normalizeRole(user.role) === 'operator_sekolah' && user.lembaga_nama) {
+      lem = this.addLembaga({
+        id: data.lembaga_id || user.lembaga_id || undefined,
+        nama: user.lembaga_nama,
+        kecamatan_id: user.kecamatan_id,
+        kecamatan_nama: user.kecamatan_nama,
+      });
+    }
 
     if (isSupabaseConfigured() && data.lembaga_id) {
       try {
@@ -456,7 +535,7 @@ export class AppDataStore {
     }
 
     if (data.id) {
-      const idx = list.findIndex((s) => s.id === data.id);
+      const idx = list.findIndex((s) => String(s.id) === String(data.id));
       if (idx !== -1) {
         list[idx] = {
           ...list[idx],
@@ -477,11 +556,11 @@ export class AppDataStore {
       alamat: data.alamat || '',
       nama_ayah: data.nama_ayah || '',
       nama_ibu: data.nama_ibu || '',
-      lembaga_id: data.lembaga_id || '',
+      lembaga_id: lem?.id || data.lembaga_id || '',
       lembaga_nama: lem?.nama || data.lembaga_nama || '',
       jenjang: lem?.jenjang || data.jenjang || 'TK',
-      kecamatan_id: lem?.kecamatan_id || data.kecamatan_id || '',
-      kecamatan_nama: lem?.kecamatan_nama || data.kecamatan_nama || '',
+      kecamatan_id: lem?.kecamatan_id || user.kecamatan_id || data.kecamatan_id || '',
+      kecamatan_nama: lem?.kecamatan_nama || user.kecamatan_nama || data.kecamatan_nama || '',
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -493,7 +572,7 @@ export class AppDataStore {
 
   static deleteSiswa(id: string, user: UserProfile): boolean {
     const list = loadFromStorage<Siswa[]>('siswa', INITIAL_SISWA);
-    const item = list.find((s) => s.id === id);
+    const item = list.find((s) => String(s.id) === String(id));
     if (!item) return false;
 
     if (isSupabaseConfigured() && !id.startsWith('sis-')) {
@@ -505,7 +584,7 @@ export class AppDataStore {
       }
     }
 
-    const remaining = list.filter((s) => s.id !== id);
+    const remaining = list.filter((s) => String(s.id) !== String(id));
     saveToStorage('siswa', remaining);
     this.addActivityLog('HAPUS_SISWA', `Menghapus peserta didik: ${item.nama} (${item.lembaga_nama})`, user);
     return true;
@@ -520,26 +599,41 @@ export class AppDataStore {
     user: UserProfile
   ): { successCount: number; updatedCount: number; insertedCount: number } {
     let list = loadFromStorage<Siswa[]>('siswa', INITIAL_SISWA);
-    const lem = this.getLembagaById(lembagaId);
+    let lem = this.getLembagaById(lembagaId);
+
+    // Jika akun operator sekolah baru dan lembaganya belum tercatat di store, buat otomatis sesuai kecamatan akun
+    if (!lem && user.lembaga_nama) {
+      lem = this.addLembaga({
+        id: lembagaId || user.lembaga_id || undefined,
+        nama: user.lembaga_nama,
+        kecamatan_id: user.kecamatan_id,
+        kecamatan_nama: user.kecamatan_nama,
+      });
+    }
+
     if (!lem) throw new Error('Lembaga tidak ditemukan');
+
+    const effectiveLembagaId = String(lem.id);
+    const effectiveKecamatanId = String(lem.kecamatan_id || user.kecamatan_id || '');
+    const effectiveKecamatanNama = lem.kecamatan_nama || user.kecamatan_nama || '';
 
     let insertedCount = 0;
     let updatedCount = 0;
 
     if (mode === 'ganti_semua') {
-      list = list.filter((s) => s.lembaga_id !== lembagaId);
+      list = list.filter((s) => String(s.lembaga_id) !== effectiveLembagaId);
     }
 
     validRows.forEach((row) => {
       let existingIdx = -1;
       if (row.nisn) {
         existingIdx = list.findIndex(
-          (s) => s.lembaga_id === lembagaId && s.nisn === row.nisn
+          (s) => String(s.lembaga_id) === effectiveLembagaId && s.nisn === row.nisn
         );
       } else {
         existingIdx = list.findIndex(
           (s) =>
-            s.lembaga_id === lembagaId &&
+            String(s.lembaga_id) === effectiveLembagaId &&
             s.nama.toLowerCase().trim() === row.nama.toLowerCase().trim() &&
             s.tanggal_lahir === row.tanggal_lahir
         );
@@ -554,6 +648,11 @@ export class AppDataStore {
           alamat: row.alamat,
           nama_ayah: row.nama_ayah,
           nama_ibu: row.nama_ibu,
+          lembaga_id: effectiveLembagaId,
+          lembaga_nama: lem!.nama,
+          jenjang: lem!.jenjang,
+          kecamatan_id: effectiveKecamatanId,
+          kecamatan_nama: effectiveKecamatanNama,
           updated_at: new Date().toISOString(),
         };
         updatedCount++;
@@ -566,11 +665,11 @@ export class AppDataStore {
           alamat: row.alamat,
           nama_ayah: row.nama_ayah,
           nama_ibu: row.nama_ibu,
-          lembaga_id: lem.id,
-          lembaga_nama: lem.nama,
-          jenjang: lem.jenjang,
-          kecamatan_id: lem.kecamatan_id,
-          kecamatan_nama: lem.kecamatan_nama,
+          lembaga_id: effectiveLembagaId,
+          lembaga_nama: lem!.nama,
+          jenjang: lem!.jenjang,
+          kecamatan_id: effectiveKecamatanId,
+          kecamatan_nama: effectiveKecamatanNama,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         });
@@ -581,7 +680,7 @@ export class AppDataStore {
     saveToStorage('siswa', list);
 
     const lemList = loadFromStorage<Lembaga[]>('lembaga', INITIAL_LEMBAGA);
-    const targetLemIdx = lemList.findIndex((l) => l.id === lembagaId);
+    const targetLemIdx = lemList.findIndex((l) => String(l.id) === effectiveLembagaId);
     if (targetLemIdx !== -1) {
       lemList[targetLemIdx].last_upload = new Date().toISOString();
       saveToStorage('lembaga', lemList);
@@ -590,7 +689,7 @@ export class AppDataStore {
     const uploadLogs = loadFromStorage<UploadLog[]>('upload_logs', []);
     const newUploadLog: UploadLog = {
       id: `up-${Date.now()}`,
-      lembaga_id: lem.id,
+      lembaga_id: effectiveLembagaId,
       lembaga_nama: lem.nama,
       user_id: user.id,
       user_nama: user.nama,
@@ -605,7 +704,7 @@ export class AppDataStore {
 
     this.addActivityLog(
       'UNGGAH_DATA',
-      `Unggah file ${fileName} (${validRows.length} berhasil, ${invalidCount} gagal) untuk ${lem.nama} [Mode: ${mode}]`,
+      `Unggah file ${fileName} (${validRows.length} berhasil, ${invalidCount} gagal) untuk ${lem.nama} (${effectiveKecamatanNama}) [Mode: ${mode}]`,
       user
     );
 
@@ -616,7 +715,9 @@ export class AppDataStore {
         body: JSON.stringify({
           validRows,
           invalidCount,
-          lembagaId,
+          lembagaId: effectiveLembagaId,
+          kecamatanId: effectiveKecamatanId,
+          kecamatanNama: effectiveKecamatanNama,
           mode,
           fileName,
           user,
@@ -634,7 +735,7 @@ export class AppDataStore {
   static getUploadLogs(lembagaId?: string): UploadLog[] {
     const list = loadFromStorage<UploadLog[]>('upload_logs', []);
     if (lembagaId) {
-      return list.filter((u) => u.lembaga_id === lembagaId);
+      return list.filter((u) => String(u.lembaga_id) === String(lembagaId));
     }
     return list;
   }
@@ -679,11 +780,19 @@ export class AppDataStore {
     let siswaList = this.getSiswaList();
 
     if (role === 'admin_kecamatan' && user.kecamatan_id) {
-      lembagaList = lembagaList.filter((l) => l.kecamatan_id === user.kecamatan_id);
-      siswaList = siswaList.filter((s) => s.kecamatan_id === user.kecamatan_id);
+      lembagaList = lembagaList.filter(
+        (l) => String(l.kecamatan_id) === String(user.kecamatan_id)
+      );
+      siswaList = siswaList.filter(
+        (s) => String(s.kecamatan_id) === String(user.kecamatan_id)
+      );
     } else if (role === 'operator_sekolah' && user.lembaga_id) {
-      lembagaList = lembagaList.filter((l) => l.id === user.lembaga_id);
-      siswaList = siswaList.filter((s) => s.lembaga_id === user.lembaga_id);
+      lembagaList = lembagaList.filter(
+        (l) => String(l.id) === String(user.lembaga_id)
+      );
+      siswaList = siswaList.filter(
+        (s) => String(s.lembaga_id) === String(user.lembaga_id)
+      );
     }
 
     const totalLembaga = lembagaList.length;
@@ -705,7 +814,10 @@ export class AppDataStore {
       siswaTPA,
       lembagaSudahUnggah,
       lembagaBelumUnggah,
-      persenSudahUnggah: totalLembaga > 0 ? Math.round((lembagaSudahUnggah / totalLembaga) * 100) : 0,
+      persenSudahUnggah:
+        totalLembaga > 0
+          ? Math.round((lembagaSudahUnggah / totalLembaga) * 100)
+          : 0,
     };
   }
 }

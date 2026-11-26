@@ -152,10 +152,8 @@ export default function PenggunaPage() {
       }
     }
 
-    // Tampilkan dulu data lokal agar instan
     setUsersList(localUsers);
 
-    // Sinkronkan status sandi terbaru dari server (/api/pengguna)
     try {
       const res = await fetch('/api/pengguna', { cache: 'no-store' });
       const data = await res.json().catch(() => ({}));
@@ -248,7 +246,7 @@ export default function PenggunaPage() {
     setFormLembagaNama('');
     setFormPassword(DEFAULT_PASSWORD);
     setShowFormPassword(false);
-    if (kecamatanList.length > 0 && !formKecamatanId) {
+    if (kecamatanList.length > 0) {
       setFormKecamatanId(kecamatanList[0].id);
     }
     setIsAddModalOpen(true);
@@ -268,6 +266,11 @@ export default function PenggunaPage() {
       return;
     }
 
+    if (!formKecamatanId) {
+      setFormError('Kecamatan wajib dipilih.');
+      return;
+    }
+
     if (formRole === 'operator_sekolah' && !cleanLembagaNama) {
       setFormError('Lembaga terikat wajib diisi.');
       return;
@@ -283,21 +286,30 @@ export default function PenggunaPage() {
       return;
     }
 
-    const kecObj = kecamatanList.find((k) => k.id === formKecamatanId);
+    const kecObj = kecamatanList.find((k) => String(k.id) === String(formKecamatanId));
     const matchedLembaga = lembagaList.find(
       (l) => l.nama.toLowerCase() === cleanLembagaNama.toLowerCase()
     );
 
-    const resolvedKecamatanId =
-      formRole === 'admin_kecamatan'
-        ? formKecamatanId
-        : matchedLembaga?.kecamatan_id || null;
+    const resolvedKecamatanId = formKecamatanId || matchedLembaga?.kecamatan_id || null;
     const resolvedKecamatanNama =
-      formRole === 'admin_kecamatan'
-        ? kecObj?.nama || null
-        : matchedLembaga?.kecamatan_nama || null;
-    const resolvedLembagaId =
-      formRole === 'operator_sekolah' ? matchedLembaga?.id || null : null;
+      kecObj?.nama || matchedLembaga?.kecamatan_nama || null;
+
+    let resolvedLembagaId: string | null = null;
+    if (formRole === 'operator_sekolah') {
+      if (matchedLembaga) {
+        resolvedLembagaId = String(matchedLembaga.id);
+      } else if (typeof (AppDataStore as any).addLembaga === 'function') {
+        const createdLembaga = (AppDataStore as any).addLembaga({
+          nama: cleanLembagaNama,
+          kecamatan_id: resolvedKecamatanId,
+          kecamatan_nama: resolvedKecamatanNama,
+        });
+        resolvedLembagaId = createdLembaga?.id ? String(createdLembaga.id) : null;
+        setLembagaList(AppDataStore.getLembagaList());
+      }
+    }
+
     const resolvedLembagaNama =
       formRole === 'operator_sekolah' ? cleanLembagaNama : null;
 
@@ -346,7 +358,7 @@ export default function PenggunaPage() {
 
       AppDataStore.addActivityLog(
         'BUAT_AKUN',
-        `Membuat akun ${newUser.nama} (${newUser.email}) peran ${newUser.role}`,
+        `Membuat akun ${newUser.nama} (${newUser.email}) peran ${newUser.role}${resolvedKecamatanNama ? ` Kec. ${resolvedKecamatanNama}` : ''}`,
         currentUser
       );
 
@@ -355,7 +367,9 @@ export default function PenggunaPage() {
       setFormLembagaNama('');
       setFormPassword(DEFAULT_PASSWORD);
       setIsAddModalOpen(false);
-      showToast(`Akun ${newUser.nama} berhasil dibuat (sandi: ${cleanPassword}).`);
+      showToast(
+        `Akun ${newUser.nama} berhasil dibuat${resolvedKecamatanNama ? ` (Kec. ${resolvedKecamatanNama})` : ''}.`
+      );
     } catch {
       setFormError('Terjadi kesalahan jaringan saat menghubungi /api/pengguna.');
     } finally {
@@ -709,24 +723,22 @@ export default function PenggunaPage() {
             </select>
           </div>
 
-          {formRole === 'admin_kecamatan' && (
-            <div>
-              <label className="block font-semibold text-slate-700 mb-1">
-                Kecamatan *
-              </label>
-              <select
-                value={formKecamatanId}
-                onChange={(e) => setFormKecamatanId(e.target.value)}
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-1 focus:ring-blue-600"
-              >
-                {kecamatanList.map((k) => (
-                  <option key={k.id} value={k.id}>
-                    Kec. {k.nama}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">
+              Kecamatan *
+            </label>
+            <select
+              value={formKecamatanId}
+              onChange={(e) => setFormKecamatanId(e.target.value)}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 bg-white outline-none focus:ring-1 focus:ring-blue-600"
+            >
+              {kecamatanList.map((k) => (
+                <option key={k.id} value={k.id}>
+                  Kec. {k.nama}
+                </option>
+              ))}
+            </select>
+          </div>
 
           {formRole === 'operator_sekolah' && (
             <div>

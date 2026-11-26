@@ -10,8 +10,6 @@ import {
   AlertTriangle,
   History,
   FileCheck,
-  RefreshCw,
-  Info,
   ShieldAlert,
 } from 'lucide-react';
 import AppLayout from '@/components/layout/AppLayout';
@@ -30,8 +28,9 @@ import {
   UploadLog,
   UserProfile,
   Lembaga,
+  normalizeRole,
 } from '@/lib/types';
-import { formatDateIndo, formatDateTimeIndo } from '@/lib/utils';
+import { formatDateTimeIndo } from '@/lib/utils';
 
 export default function UnggahSiswaPage() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
@@ -58,20 +57,54 @@ export default function UnggahSiswaPage() {
   const loadData = () => {
     const user = AppDataStore.getCurrentUser();
     setCurrentUser(user);
+    const role = normalizeRole(user.role);
 
-    let l = AppDataStore.getLembagaList();
-    if (user.role === 'lembaga' && user.lembaga_id) {
-      l = l.filter((item) => item.id === user.lembaga_id);
-      setTargetLembagaId(user.lembaga_id);
-    } else if (l.length > 0) {
-      setTargetLembagaId(l[0].id);
+    const allLembaga = AppDataStore.getLembagaList();
+
+    if (role === 'operator_sekolah') {
+      let ownLembaga = user.lembaga_id
+        ? allLembaga.filter((item) => String(item.id) === String(user.lembaga_id))
+        : [];
+
+      // Fallback cocokkan berdasarkan nama lembaga jika lembaga_id belum terisi
+      if (ownLembaga.length === 0 && user.lembaga_nama) {
+        ownLembaga = allLembaga.filter(
+          (item) =>
+            item.nama.trim().toLowerCase() === user.lembaga_nama!.trim().toLowerCase()
+        );
+      }
+
+      const resolvedId = ownLembaga[0]?.id
+        ? String(ownLembaga[0].id)
+        : user.lembaga_id
+          ? String(user.lembaga_id)
+          : '';
+
+      setLembagaList(ownLembaga);
+      setTargetLembagaId(resolvedId);
+
+      const logs = AppDataStore.getUploadLogs(resolvedId || undefined);
+      setUploadLogs(
+        resolvedId
+          ? logs.filter((log) => String(log.lembaga_id) === resolvedId)
+          : []
+      );
+    } else if (role === 'admin_kecamatan') {
+      const kecId = user.kecamatan_id ? String(user.kecamatan_id) : '';
+      const kecLembaga = kecId
+        ? allLembaga.filter((item) => String(item.kecamatan_id) === kecId)
+        : [];
+      setLembagaList(kecLembaga);
+      setTargetLembagaId(kecLembaga[0]?.id ? String(kecLembaga[0].id) : '');
+      setUploadLogs([]);
+    } else {
+      // Admin Dinas
+      setLembagaList(allLembaga);
+      if (allLembaga.length > 0) {
+        setTargetLembagaId((prev) => prev || String(allLembaga[0].id));
+      }
+      setUploadLogs(AppDataStore.getUploadLogs());
     }
-    setLembagaList(l);
-
-    const logs = AppDataStore.getUploadLogs(
-      user.role === 'lembaga' ? user.lembaga_id || undefined : undefined
-    );
-    setUploadLogs(logs);
   };
 
   useEffect(() => {
@@ -80,8 +113,10 @@ export default function UnggahSiswaPage() {
 
   if (!currentUser) return null;
 
-  // PRD Role Check: Kecamatan cannot upload
-  if (currentUser.role === 'kecamatan') {
+  const role = normalizeRole(currentUser.role);
+
+  // PRD Role Check: Admin Kecamatan tidak diizinkan unggah data
+  if (role === 'admin_kecamatan') {
     return (
       <AppLayout title="Akses Dibatasi">
         <div className="p-8 text-center bg-white rounded-xl border border-slate-200">
@@ -90,7 +125,7 @@ export default function UnggahSiswaPage() {
             Kecamatan Hanya Memiliki Hak Baca dan Cetak
           </h3>
           <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto">
-            Sesuai PRD, akun kecamatan tidak diizinkan untuk mengunggah, mengubah, atau menghapus data siswa.
+            Akun admin kecamatan tidak diizinkan untuk mengunggah, mengubah, atau menghapus data siswa.
           </p>
         </div>
       </AppLayout>
@@ -152,9 +187,14 @@ export default function UnggahSiswaPage() {
   };
 
   // 4. Simpan ke Database
-  const handleCommitUpload = (saveOnlyValid: boolean = false) => {
-    if (!targetLembagaId) {
-      alert('Silakan pilih lembaga tujuan terlebih dahulu.');
+  const handleCommitUpload = () => {
+    const effectiveLembagaId =
+      role === 'operator_sekolah'
+        ? String(lembagaList[0]?.id || currentUser.lembaga_id || targetLembagaId)
+        : targetLembagaId;
+
+    if (!effectiveLembagaId) {
+      alert('Lembaga tujuan belum terhubung dengan akun ini. Hubungi Admin Dinas.');
       return;
     }
 
@@ -175,7 +215,7 @@ export default function UnggahSiswaPage() {
       const res = AppDataStore.bulkUpsertSiswa(
         validRows,
         invalidCount,
-        targetLembagaId,
+        effectiveLembagaId,
         uploadMode,
         fileName,
         currentUser
@@ -184,7 +224,6 @@ export default function UnggahSiswaPage() {
       setSaveResult(res);
       setShowSuccessModal(true);
       setShowReplaceModal(false);
-      // Reset form
       setParsedRows([]);
       setFileName('');
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -196,17 +235,22 @@ export default function UnggahSiswaPage() {
 
   const validCount = parsedRows.filter((r) => r.isValid).length;
   const invalidCount = parsedRows.filter((r) => !r.isValid).length;
-  const targetLembaga = lembagaList.find((l) => l.id === targetLembagaId);
+  const targetLembaga = lembagaList.find(
+    (l) => String(l.id) === String(targetLembagaId)
+  );
 
   return (
     <AppLayout
       title="Unggah Data Siswa Massal"
-      subtitle="Kumpulkan dan perbarui data peserta didik lembaga menggunakan file Excel atau CSV"
+      subtitle={
+        role === 'operator_sekolah'
+          ? `Unggah dan perbarui data peserta didik ${targetLembaga?.nama || currentUser.lembaga_nama || 'lembaga Anda'}`
+          : 'Kumpulkan dan perbarui data peserta didik lembaga menggunakan file Excel atau CSV'
+      }
       breadcrumbs={[{ label: 'Unggah Siswa' }]}
     >
       {/* Step Banner & Template Download Card */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        {/* Step Instructions (2 Cols) */}
         <div className="lg:col-span-2 space-y-4">
           <Card>
             <CardHeader>
@@ -243,7 +287,7 @@ export default function UnggahSiswaPage() {
                 </span>
                 <div>
                   <strong className="text-emerald-900 block font-semibold">
-                    Validasi Otomatis & Pratinjau
+                    Validasi Otomatis &amp; Pratinjau
                   </strong>
                   Sistem mengecek duplikasi dan error format sebelum disimpan. Anda dapat menyimpan hanya baris valid dan mengunduh laporan perbaikan error.
                 </div>
@@ -252,7 +296,6 @@ export default function UnggahSiswaPage() {
           </Card>
         </div>
 
-        {/* Template Download Card (1 Col) */}
         <div>
           <Card className="border-blue-200 bg-gradient-to-br from-white to-blue-50/60 h-full flex flex-col justify-between">
             <CardContent className="p-6">
@@ -285,7 +328,7 @@ export default function UnggahSiswaPage() {
       {/* Upload Zone Card */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Pilih Lembaga & Unggah File</CardTitle>
+          <CardTitle>Pilih Lembaga &amp; Unggah File</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -294,7 +337,7 @@ export default function UnggahSiswaPage() {
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Lembaga Tujuan Pengunggahan *
               </label>
-              {currentUser.role === 'admin' ? (
+              {role === 'admin_dinas' ? (
                 <select
                   value={targetLembagaId}
                   onChange={(e) => setTargetLembagaId(e.target.value)}
@@ -308,23 +351,26 @@ export default function UnggahSiswaPage() {
                 </select>
               ) : (
                 <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800">
-                  {currentUser.lembaga_nama} ({targetLembaga?.jenjang})
+                  {targetLembaga?.nama || currentUser.lembaga_nama || 'Lembaga Anda'}
+                  {targetLembaga?.jenjang ? ` (${targetLembaga.jenjang})` : ''}
+                  {targetLembaga?.kecamatan_nama || currentUser.kecamatan_nama
+                    ? ` • Kec. ${targetLembaga?.kecamatan_nama || currentUser.kecamatan_nama}`
+                    : ''}
                 </div>
               )}
             </div>
 
-            {/* Mode Unggah (PRD 6.3) */}
+            {/* Mode Unggah */}
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1.5">
                 Mode Pembaruan Data
               </label>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <label
-                  className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition ${
-                    uploadMode === 'perbarui'
+                  className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition ${uploadMode === 'perbarui'
                       ? 'border-blue-600 bg-blue-50/50 text-blue-900 font-semibold'
                       : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
+                    }`}
                 >
                   <input
                     type="radio"
@@ -338,11 +384,10 @@ export default function UnggahSiswaPage() {
                 </label>
 
                 <label
-                  className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition ${
-                    uploadMode === 'ganti_semua'
+                  className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition ${uploadMode === 'ganti_semua'
                       ? 'border-rose-600 bg-rose-50/50 text-rose-900 font-semibold'
                       : 'border-slate-200 text-slate-600 hover:bg-slate-50'
-                  }`}
+                    }`}
                 >
                   <input
                     type="radio"
@@ -374,7 +419,11 @@ export default function UnggahSiswaPage() {
               <UploadCloud className="w-6 h-6" />
             </div>
             <p className="text-sm font-bold text-slate-800">
-              {fileName ? fileName : 'Klik atau tarik file Excel / CSV ke sini'}
+              {isProcessing
+                ? 'Memproses file...'
+                : fileName
+                  ? fileName
+                  : 'Klik atau tarik file Excel / CSV ke sini'}
             </p>
             <p className="text-xs text-slate-500 mt-1">
               Mendukung format .xlsx, .xls, atau .csv (Maksimal 5.000 baris per file)
@@ -386,7 +435,6 @@ export default function UnggahSiswaPage() {
       {/* Validation Summary & Preview Table */}
       {parsedRows.length > 0 && (
         <div className="space-y-4 mb-6">
-          {/* Summary Status Box */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <Card className="border-slate-200 bg-slate-50/50">
               <CardContent className="p-4 flex items-center gap-3">
@@ -431,7 +479,6 @@ export default function UnggahSiswaPage() {
             </Card>
           </div>
 
-          {/* Action Bar for Preview */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 bg-white rounded-xl border border-slate-200">
             <div className="text-xs text-slate-600">
               {invalidCount > 0 ? (
@@ -463,7 +510,7 @@ export default function UnggahSiswaPage() {
                 variant="primary"
                 size="sm"
                 disabled={validCount === 0}
-                onClick={() => handleCommitUpload(false)}
+                onClick={handleCommitUpload}
                 leftIcon={<FileCheck className="w-4 h-4" />}
               >
                 Simpan {validCount} Data Valid
@@ -471,7 +518,6 @@ export default function UnggahSiswaPage() {
             </div>
           </div>
 
-          {/* Pratinjau Baris Tabel */}
           <Card>
             <CardHeader>
               <CardTitle>Pratinjau Hasil Validasi Data</CardTitle>
@@ -486,7 +532,7 @@ export default function UnggahSiswaPage() {
                     <th className="py-2.5 px-3">Nama Siswa</th>
                     <th className="py-2.5 px-3">Tgl Lahir</th>
                     <th className="py-2.5 px-3">Alamat</th>
-                    <th className="py-2.5 px-3">Ayah & Ibu</th>
+                    <th className="py-2.5 px-3">Ayah &amp; Ibu</th>
                     <th className="py-2.5 px-3">Keterangan Error</th>
                   </tr>
                 </thead>
@@ -531,7 +577,7 @@ export default function UnggahSiswaPage() {
         </div>
       )}
 
-      {/* Riwayat Pengunggahan (upload_log) */}
+      {/* Riwayat Pengunggahan */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -594,7 +640,8 @@ export default function UnggahSiswaPage() {
             <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
             <div>
               <strong className="block font-bold">PERINGATAN TINGKAT TINGGI</strong>
-              Mode <em>Ganti Semua Data</em> akan menghapus seluruh data siswa yang saat ini tercatat di lembaga <strong>{targetLembaga?.nama}</strong> dan menggantikannya sepenuhnya dengan file baru.
+              Mode <em>Ganti Semua Data</em> akan menghapus seluruh data siswa yang saat ini tercatat di lembaga{' '}
+              <strong>{targetLembaga?.nama || currentUser.lembaga_nama}</strong> dan menggantikannya sepenuhnya dengan file baru.
             </div>
           </div>
           <p className="text-slate-600">
@@ -611,7 +658,7 @@ export default function UnggahSiswaPage() {
             <Button
               variant="danger"
               size="sm"
-              onClick={() => handleCommitUpload(false)}
+              onClick={handleCommitUpload}
             >
               Saya Yakin, Ganti Semua Data
             </Button>
@@ -641,7 +688,7 @@ export default function UnggahSiswaPage() {
               size="sm"
               onClick={() => setShowSuccessModal(false)}
             >
-              Tutup & Selesai
+              Tutup &amp; Selesai
             </Button>
           </div>
         </div>
