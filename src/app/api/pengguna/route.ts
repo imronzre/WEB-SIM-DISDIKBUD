@@ -39,8 +39,27 @@ export async function GET() {
             );
         }
 
-        const [{ data, error }, { data: authData }] = await Promise.all([
-            supabaseAdmin
+        const withStatusQuery = await supabaseAdmin
+            .from('profiles')
+            .select(`
+                id,
+                nama,
+                role,
+                kecamatan_id,
+                lembaga_id,
+                password_status,
+                created_at,
+                kecamatan:kecamatan_id (nama),
+                lembaga:lembaga_id (nama)
+            `)
+            .order('created_at', { ascending: false });
+
+        let profileRows: Record<string, unknown>[] = [];
+        let hasPasswordStatusCol = true;
+
+        if (withStatusQuery.error) {
+            hasPasswordStatusCol = false;
+            const fallbackQuery = await supabaseAdmin
                 .from('profiles')
                 .select(`
                     id,
@@ -48,30 +67,45 @@ export async function GET() {
                     role,
                     kecamatan_id,
                     lembaga_id,
-                    password_status,
                     created_at,
                     kecamatan:kecamatan_id (nama),
                     lembaga:lembaga_id (nama)
                 `)
-                .order('created_at', { ascending: false }),
-            supabaseAdmin.auth.admin.listUsers({ perPage: 200 }),
-        ]);
+                .order('created_at', { ascending: false });
 
-        if (error) {
-            return NextResponse.json({ error: error.message }, { status: 400 });
+            if (fallbackQuery.error) {
+                return NextResponse.json({ error: fallbackQuery.error.message }, { status: 400 });
+            }
+            profileRows = (fallbackQuery.data || []) as Record<string, unknown>[];
+        } else {
+            profileRows = (withStatusQuery.data || []) as Record<string, unknown>[];
         }
 
+        const { data: authData } = await supabaseAdmin.auth.admin.listUsers({ perPage: 200 });
+
         const emailById = new Map<string, string>();
+        const metaStatusById = new Map<string, 'default' | 'changed'>();
+
         for (const u of authData?.users || []) {
-            if (u.id && u.email) {
-                emailById.set(u.id, u.email);
+            if (u.id) {
+                if (u.email) emailById.set(u.id, u.email);
+                const metaStatus = u.user_metadata?.password_status;
+                if (metaStatus === 'changed' || metaStatus === 'default') {
+                    metaStatusById.set(u.id, metaStatus);
+                }
             }
         }
 
-        const users = (data || []).map((row: Record<string, unknown>) => {
+        const users = profileRows.map((row) => {
             const id = String(row.id || '');
             const kec = row.kecamatan as { nama?: string } | null;
             const lem = row.lembaga as { nama?: string } | null;
+            const dbStatus = hasPasswordStatusCol ? row.password_status : null;
+            const resolvedStatus =
+                dbStatus === 'changed' || dbStatus === 'default'
+                    ? dbStatus
+                    : metaStatusById.get(id) || 'default';
+
             return {
                 id,
                 email: emailById.get(id) || '',
@@ -81,7 +115,7 @@ export async function GET() {
                 kecamatan_nama: kec?.nama ?? null,
                 lembaga_id: row.lembaga_id ?? null,
                 lembaga_nama: lem?.nama ?? null,
-                password_status: row.password_status === 'changed' ? 'changed' : 'default',
+                password_status: resolvedStatus,
                 created_at: row.created_at ?? new Date().toISOString(),
             };
         });
@@ -117,12 +151,14 @@ export async function POST(req: NextRequest) {
             );
         }
 
+        const passwordStatus = resolvedPassword === '123456' ? 'default' : 'changed';
+
         const { data: created, error: createErr } =
             await supabaseAdmin.auth.admin.createUser({
                 email,
                 password: resolvedPassword,
                 email_confirm: true,
-                user_metadata: { nama, role },
+                user_metadata: { nama, role, password_status: passwordStatus },
             });
 
         if (createErr || !created.user) {
@@ -132,19 +168,33 @@ export async function POST(req: NextRequest) {
             );
         }
 
-        const passwordStatus = resolvedPassword === '123456' ? 'default' : 'changed';
-
-        const { error: profileErr } = await supabaseAdmin.from('profiles').upsert({
+        const payloadWithStatus = {
             id: created.user.id,
             nama,
             role,
             kecamatan_id: toValidUuid(kecamatan_id),
             lembaga_id: toValidUuid(lembaga_id),
             password_status: passwordStatus,
-        });
+        };
+
+        const { error: profileErr } = await supabaseAdmin
+            .from('profiles')
+            .upsert(payloadWithStatus);
 
         if (profileErr) {
-            return NextResponse.json({ error: profileErr.message }, { status: 400 });
+            const { error: fallbackProfileErr } = await supabaseAdmin
+                .from('profiles')
+                .upsert({
+                    id: created.user.id,
+                    nama,
+                    role,
+                    kecamatan_id: toValidUuid(kecamatan_id),
+                    lembaga_id: toValidUuid(lembaga_id),
+                });
+
+            if (fallbackProfileErr) {
+                return NextResponse.json({ error: fallbackProfileErr.message }, { status: 400 });
+            }
         }
 
         return NextResponse.json({ id: created.user.id, password_status: passwordStatus });
@@ -198,15 +248,16 @@ export async function PATCH(req: NextRequest) {
             }
         }
 
+        const nextStatus = nextPassword === '123456' ? 'default' : 'changed';
+
         const { error } = await supabaseAdmin.auth.admin.updateUserById(id, {
             password: nextPassword,
+            user_metadata: { password_status: nextStatus },
         });
 
         if (error) {
             return NextResponse.json({ error: error.message }, { status: 400 });
         }
-
-        const nextStatus = nextPassword === '123456' ? 'default' : 'changed';
 
         await supabaseAdmin
             .from('profiles')
