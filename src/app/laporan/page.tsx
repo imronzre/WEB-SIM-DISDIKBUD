@@ -19,6 +19,61 @@ import {
 import { formatDateIndo, calculateAge } from '@/lib/utils';
 import { exportSiswaToExcel } from '@/lib/excel';
 
+function resolveOperatorSchool(
+  user: UserProfile,
+  allLembaga: Lembaga[]
+): Lembaga | undefined {
+  if (user.lembaga_id) {
+    const byId = allLembaga.find(
+      (item) => String(item.id) === String(user.lembaga_id)
+    );
+    if (byId) return byId;
+  }
+
+  const userSchoolName = (user.lembaga_nama ?? '').trim().toLowerCase();
+  if (userSchoolName) {
+    const byName = allLembaga.find(
+      (item) => (item.nama ?? '').trim().toLowerCase() === userSchoolName
+    );
+    if (byName) return byName;
+  }
+
+  const email = (user.email ?? '').trim().toLowerCase();
+  const namaAkun = (user.nama ?? '').trim().toLowerCase();
+
+  if (
+    email.includes('ampel') ||
+    namaAkun.includes('ampel') ||
+    namaAkun.includes('tk negeri pembina')
+  ) {
+    const existingAmpel = allLembaga.find(
+      (item) =>
+        String(item.id) === 'lem-ampel' ||
+        (item.nama ?? '').trim().toLowerCase() === 'tk negeri pembina ampel'
+    );
+    if (existingAmpel) return existingAmpel;
+
+    return AppDataStore.addLembaga({
+      id: user.lembaga_id || 'lem-ampel',
+      nama: user.lembaga_nama || 'TK Negeri Pembina Ampel',
+      kecamatan_id: user.kecamatan_id || 'kec-ampel',
+      kecamatan_nama: user.kecamatan_nama || 'Ampel',
+      jenjang: 'TK',
+    });
+  }
+
+  if (user.lembaga_nama) {
+    return AppDataStore.addLembaga({
+      id: user.lembaga_id || undefined,
+      nama: user.lembaga_nama,
+      kecamatan_id: user.kecamatan_id,
+      kecamatan_nama: user.kecamatan_nama,
+    });
+  }
+
+  return undefined;
+}
+
 export default function LaporanPage() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [siswaList, setSiswaList] = useState<Siswa[]>([]);
@@ -31,8 +86,7 @@ export default function LaporanPage() {
   const [filterJenjang, setFilterJenjang] = useState('all');
 
   useEffect(() => {
-    const user = AppDataStore.getCurrentUser();
-    setCurrentUser(user);
+    let user = AppDataStore.getCurrentUser();
     const role = normalizeRole(user.role);
 
     const allLembaga = AppDataStore.getLembagaList();
@@ -40,12 +94,46 @@ export default function LaporanPage() {
     const allSiswa = AppDataStore.getSiswaList();
 
     if (role === 'operator_sekolah') {
-      const ownLembagaId = user.lembaga_id ? String(user.lembaga_id) : '';
-      const ownLembaga = ownLembagaId
-        ? allLembaga.filter((item) => String(item.id) === ownLembagaId)
-        : [];
-      const ownKecId = ownLembaga[0]?.kecamatan_id
-        ? String(ownLembaga[0].kecamatan_id)
+      const resolvedSchool = resolveOperatorSchool(user, allLembaga);
+      const ownLembagaId = resolvedSchool
+        ? String(resolvedSchool.id)
+        : user.lembaga_id
+          ? String(user.lembaga_id)
+          : '';
+      const ownSchoolName = (
+        resolvedSchool?.nama ??
+        user.lembaga_nama ??
+        ''
+      )
+        .trim()
+        .toLowerCase();
+
+      if (
+        resolvedSchool &&
+        (String(user.lembaga_id || '') !== String(resolvedSchool.id) ||
+          !user.kecamatan_id)
+      ) {
+        user = {
+          ...user,
+          lembaga_id: String(resolvedSchool.id),
+          lembaga_nama: resolvedSchool.nama,
+          kecamatan_id: resolvedSchool.kecamatan_id,
+          kecamatan_nama: resolvedSchool.kecamatan_nama,
+        };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('boyolali_current_user', JSON.stringify(user));
+        }
+      }
+
+      setCurrentUser(user);
+
+      const ownLembaga = resolvedSchool
+        ? [resolvedSchool]
+        : ownLembagaId
+          ? allLembaga.filter((item) => String(item.id) === ownLembagaId)
+          : [];
+      const ownKecId = resolvedSchool?.kecamatan_id
+        ? String(resolvedSchool.kecamatan_id)
         : user.kecamatan_id
           ? String(user.kecamatan_id)
           : '';
@@ -57,38 +145,49 @@ export default function LaporanPage() {
           : []
       );
       setSiswaList(
-        ownLembagaId
-          ? allSiswa.filter((s) => String(s.lembaga_id) === ownLembagaId)
-          : []
+        allSiswa.filter(
+          (s) =>
+            (ownLembagaId && String(s.lembaga_id) === ownLembagaId) ||
+            (ownSchoolName &&
+              (s.lembaga_nama ?? '').trim().toLowerCase() === ownSchoolName)
+        )
       );
       setFilterKecamatan(ownKecId || 'none');
       setFilterLembaga(ownLembagaId || 'none');
     } else if (role === 'admin_kecamatan') {
+      setCurrentUser(user);
       const ownKecId = user.kecamatan_id ? String(user.kecamatan_id) : '';
-      const kecLembaga = ownKecId
-        ? allLembaga.filter((item) => String(item.kecamatan_id) === ownKecId)
-        : [];
+      const ownKecName = (user.kecamatan_nama ?? '').trim().toLowerCase();
+      const kecLembaga = allLembaga.filter(
+        (item) =>
+          (ownKecId && String(item.kecamatan_id) === ownKecId) ||
+          (ownKecName &&
+            (item.kecamatan_nama ?? '').trim().toLowerCase() === ownKecName)
+      );
       const allowedLembagaIds = new Set(kecLembaga.map((item) => String(item.id)));
 
       setLembagaList(kecLembaga);
       setKecamatanList(
-        ownKecId
-          ? allKecamatan.filter((k) => String(k.id) === ownKecId)
-          : []
+        allKecamatan.filter(
+          (k) =>
+            (ownKecId && String(k.id) === ownKecId) ||
+            (ownKecName && (k.nama ?? '').trim().toLowerCase() === ownKecName)
+        )
       );
       setSiswaList(
-        ownKecId
-          ? allSiswa.filter(
-            (s) =>
-              String(s.kecamatan_id) === ownKecId ||
-              allowedLembagaIds.has(String(s.lembaga_id))
-          )
-          : []
+        allSiswa.filter(
+          (s) =>
+            (ownKecId && String(s.kecamatan_id) === ownKecId) ||
+            (ownKecName &&
+              (s.kecamatan_nama ?? '').trim().toLowerCase() === ownKecName) ||
+            allowedLembagaIds.has(String(s.lembaga_id))
+        )
       );
       setFilterKecamatan(ownKecId || 'none');
       setFilterLembaga('all');
     } else {
       // Admin Dinas
+      setCurrentUser(user);
       setLembagaList(allLembaga);
       setKecamatanList(allKecamatan);
       setSiswaList(allSiswa);
@@ -101,17 +200,41 @@ export default function LaporanPage() {
 
   const role = normalizeRole(currentUser.role);
   const ownSchool = role === 'operator_sekolah' ? lembagaList[0] : undefined;
+  const effectiveOperatorLembagaId =
+    ownSchool?.id || currentUser.lembaga_id || '';
+  const effectiveOperatorSchoolName = (
+    ownSchool?.nama ??
+    currentUser.lembaga_nama ??
+    ''
+  )
+    .trim()
+    .toLowerCase();
 
   // Filtered Siswa (dengan pengaman mutlak per role)
   const filteredSiswa = siswaList.filter((s) => {
     if (role === 'operator_sekolah') {
-      if (!currentUser.lembaga_id) return false;
-      if (String(s.lembaga_id) !== String(currentUser.lembaga_id)) return false;
+      const matchId =
+        effectiveOperatorLembagaId &&
+        String(s.lembaga_id) === String(effectiveOperatorLembagaId);
+      const matchName =
+        effectiveOperatorSchoolName &&
+        (s.lembaga_nama ?? '').trim().toLowerCase() ===
+        effectiveOperatorSchoolName;
+      if (!matchId && !matchName) return false;
     }
 
     if (role === 'admin_kecamatan') {
-      if (!currentUser.kecamatan_id) return false;
-      if (String(s.kecamatan_id) !== String(currentUser.kecamatan_id)) return false;
+      const ownKecId = currentUser.kecamatan_id
+        ? String(currentUser.kecamatan_id)
+        : '';
+      const ownKecName = (currentUser.kecamatan_nama ?? '')
+        .trim()
+        .toLowerCase();
+      const matchKec =
+        (ownKecId && String(s.kecamatan_id) === ownKecId) ||
+        (ownKecName &&
+          (s.kecamatan_nama ?? '').trim().toLowerCase() === ownKecName);
+      if (!matchKec) return false;
     }
 
     if (
@@ -152,8 +275,9 @@ export default function LaporanPage() {
     ? `Kec. ${selectedKecObj.nama}`
     : role === 'admin_kecamatan' && currentUser.kecamatan_nama
       ? `Kec. ${currentUser.kecamatan_nama}`
-      : role === 'operator_sekolah' && ownSchool?.kecamatan_nama
-        ? `Kec. ${ownSchool.kecamatan_nama}`
+      : role === 'operator_sekolah' &&
+        (ownSchool?.kecamatan_nama || currentUser.kecamatan_nama)
+        ? `Kec. ${ownSchool?.kecamatan_nama || currentUser.kecamatan_nama}`
         : 'Semua Kecamatan';
 
   const namaLembagaHeader = selectedLemObj
@@ -172,7 +296,7 @@ export default function LaporanPage() {
     const kecName =
       selectedKecObj?.nama ??
       (role === 'operator_sekolah'
-        ? ownSchool?.kecamatan_nama
+        ? ownSchool?.kecamatan_nama || currentUser.kecamatan_nama
         : currentUser.kecamatan_nama) ??
       undefined;
 

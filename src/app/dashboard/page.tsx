@@ -42,6 +42,61 @@ interface KecamatanRecapRow {
   totalSiswa: number;
 }
 
+function resolveOperatorSchool(
+  user: UserProfile,
+  allLembaga: Lembaga[]
+): Lembaga | undefined {
+  if (user.lembaga_id) {
+    const byId = allLembaga.find(
+      (item) => String(item.id) === String(user.lembaga_id)
+    );
+    if (byId) return byId;
+  }
+
+  const userSchoolName = (user.lembaga_nama ?? '').trim().toLowerCase();
+  if (userSchoolName) {
+    const byName = allLembaga.find(
+      (item) => (item.nama ?? '').trim().toLowerCase() === userSchoolName
+    );
+    if (byName) return byName;
+  }
+
+  const email = (user.email ?? '').trim().toLowerCase();
+  const namaAkun = (user.nama ?? '').trim().toLowerCase();
+
+  if (
+    email.includes('ampel') ||
+    namaAkun.includes('ampel') ||
+    namaAkun.includes('tk negeri pembina')
+  ) {
+    const existingAmpel = allLembaga.find(
+      (item) =>
+        String(item.id) === 'lem-ampel' ||
+        (item.nama ?? '').trim().toLowerCase() === 'tk negeri pembina ampel'
+    );
+    if (existingAmpel) return existingAmpel;
+
+    return AppDataStore.addLembaga({
+      id: user.lembaga_id || 'lem-ampel',
+      nama: user.lembaga_nama || 'TK Negeri Pembina Ampel',
+      kecamatan_id: user.kecamatan_id || 'kec-ampel',
+      kecamatan_nama: user.kecamatan_nama || 'Ampel',
+      jenjang: 'TK',
+    });
+  }
+
+  if (user.lembaga_nama) {
+    return AppDataStore.addLembaga({
+      id: user.lembaga_id || undefined,
+      nama: user.lembaga_nama,
+      kecamatan_id: user.kecamatan_id,
+      kecamatan_nama: user.kecamatan_nama,
+    });
+  }
+
+  return undefined;
+}
+
 export default function DashboardPage() {
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [scopedLembaga, setScopedLembaga] = useState<Lembaga[]>([]);
@@ -54,17 +109,40 @@ export default function DashboardPage() {
   const lembagaSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const user = AppDataStore.getCurrentUser();
-    setCurrentUser(user);
+    let user = AppDataStore.getCurrentUser();
     const role = normalizeRole(user.role);
 
     const allKec = AppDataStore.getKecamatan();
     const allLembaga = AppDataStore.getLembagaList();
 
     if (role === 'operator_sekolah') {
-      // Hanya sekolah yang diampu akun operator ini saja
-      const ownSchools = user.lembaga_id
-        ? allLembaga.filter((item) => String(item.id) === String(user.lembaga_id))
+      const resolvedSchool = resolveOperatorSchool(user, allLembaga);
+      if (
+        resolvedSchool &&
+        (String(user.lembaga_id || '') !== String(resolvedSchool.id) ||
+          !user.kecamatan_id)
+      ) {
+        user = {
+          ...user,
+          lembaga_id: String(resolvedSchool.id),
+          lembaga_nama: resolvedSchool.nama,
+          kecamatan_id: resolvedSchool.kecamatan_id,
+          kecamatan_nama: resolvedSchool.kecamatan_nama,
+        };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('boyolali_current_user', JSON.stringify(user));
+        }
+      }
+
+      setCurrentUser(user);
+
+      const ownSchools = resolvedSchool
+        ? allLembaga.filter(
+          (item) =>
+            String(item.id) === String(resolvedSchool.id) ||
+            (item.nama ?? '').trim().toLowerCase() ===
+            (resolvedSchool.nama ?? '').trim().toLowerCase()
+        )
         : [];
 
       const kecIds = new Set<string>();
@@ -76,26 +154,32 @@ export default function DashboardPage() {
       }
 
       setScopedLembaga(ownSchools);
-      setScopedKecamatan(
-        allKec.filter((k) => kecIds.has(String(k.id)))
-      );
+      setScopedKecamatan(allKec.filter((k) => kecIds.has(String(k.id))));
       setFocusedKec('all');
     } else if (role === 'admin_kecamatan') {
-      // Hanya kecamatan dan sekolah di kecamatan yang diampu akun ini saja
+      setCurrentUser(user);
       const targetKecId = user.kecamatan_id ? String(user.kecamatan_id) : '';
-      const kecSchools = targetKecId
-        ? allLembaga.filter((item) => String(item.kecamatan_id) === targetKecId)
-        : [];
+      const targetKecName = (user.kecamatan_nama ?? '').trim().toLowerCase();
+      const kecSchools = allLembaga.filter(
+        (item) =>
+          (targetKecId && String(item.kecamatan_id) === targetKecId) ||
+          (targetKecName &&
+            (item.kecamatan_nama ?? '').trim().toLowerCase() === targetKecName)
+      );
 
       setScopedLembaga(kecSchools);
       setScopedKecamatan(
-        targetKecId
-          ? allKec.filter((k) => String(k.id) === targetKecId)
-          : []
+        allKec.filter(
+          (k) =>
+            (targetKecId && String(k.id) === targetKecId) ||
+            (targetKecName &&
+              (k.nama ?? '').trim().toLowerCase() === targetKecName)
+        )
       );
       setFocusedKec('all');
     } else {
       // Admin Dinas: seluruh kecamatan dan seluruh lembaga
+      setCurrentUser(user);
       setScopedLembaga(allLembaga);
       setScopedKecamatan(allKec);
       setFocusedKec('all');
@@ -181,7 +265,7 @@ export default function DashboardPage() {
       ) {
         return false;
       }
-      if (q && !k.nama.toLowerCase().includes(q)) return false;
+      if (q && !(k.nama ?? '').toLowerCase().includes(q)) return false;
       return true;
     });
 
