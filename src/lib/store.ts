@@ -393,17 +393,20 @@ export class AppDataStore {
       try {
         const supabase = createClient();
         if (data.id && !data.id.startsWith('lem-')) {
-          supabase.from('lembaga').update({
-            nama: data.nama,
-            npsn: data.npsn,
-            jenjang: data.jenjang,
-            kecamatan_id: data.kecamatan_id,
-            desa: data.desa,
-            alamat: data.alamat,
-            status: data.status,
-            kontak: data.kontak,
-            aktif: data.aktif,
-          }).eq('id', data.id);
+          supabase
+            .from('lembaga')
+            .update({
+              nama: data.nama,
+              npsn: data.npsn,
+              jenjang: data.jenjang,
+              kecamatan_id: data.kecamatan_id,
+              desa: data.desa,
+              alamat: data.alamat,
+              status: data.status,
+              kontak: data.kontak,
+              aktif: data.aktif,
+            })
+            .eq('id', data.id);
         } else {
           supabase.from('lembaga').insert({
             nama: data.nama,
@@ -432,7 +435,11 @@ export class AppDataStore {
           updated_at: new Date().toISOString(),
         };
         saveToStorage('lembaga', list);
-        this.addActivityLog('UBAH_LEMBAGA', `Memperbarui data lembaga: ${list[index].nama}`, user);
+        this.addActivityLog(
+          'UBAH_LEMBAGA',
+          `Memperbarui data lembaga: ${list[index].nama}`,
+          user
+        );
         return list[index];
       }
     }
@@ -456,7 +463,11 @@ export class AppDataStore {
     };
     list.unshift(newLembaga);
     saveToStorage('lembaga', list);
-    this.addActivityLog('TAMBAH_LEMBAGA', `Menambahkan lembaga baru: ${newLembaga.nama}`, user);
+    this.addActivityLog(
+      'TAMBAH_LEMBAGA',
+      `Menambahkan lembaga baru: ${newLembaga.nama}`,
+      user
+    );
     return newLembaga;
   }
 
@@ -509,15 +520,18 @@ export class AppDataStore {
       try {
         const supabase = createClient();
         if (data.id && !data.id.startsWith('sis-')) {
-          supabase.from('siswa').update({
-            nisn: data.nisn,
-            nama: data.nama,
-            tanggal_lahir: data.tanggal_lahir,
-            alamat: data.alamat,
-            nama_ayah: data.nama_ayah,
-            nama_ibu: data.nama_ibu,
-            lembaga_id: data.lembaga_id,
-          }).eq('id', data.id);
+          supabase
+            .from('siswa')
+            .update({
+              nisn: data.nisn,
+              nama: data.nama,
+              tanggal_lahir: data.tanggal_lahir,
+              alamat: data.alamat,
+              nama_ayah: data.nama_ayah,
+              nama_ibu: data.nama_ibu,
+              lembaga_id: data.lembaga_id,
+            })
+            .eq('id', data.id);
         } else {
           supabase.from('siswa').insert({
             nisn: data.nisn,
@@ -543,7 +557,11 @@ export class AppDataStore {
           updated_at: new Date().toISOString(),
         };
         saveToStorage('siswa', list);
-        this.addActivityLog('UBAH_SISWA', `Memperbarui data peserta didik: ${list[idx].nama}`, user);
+        this.addActivityLog(
+          'UBAH_SISWA',
+          `Memperbarui data peserta didik: ${list[idx].nama}`,
+          user
+        );
         return list[idx];
       }
     }
@@ -566,7 +584,11 @@ export class AppDataStore {
     };
     list.unshift(newSiswa);
     saveToStorage('siswa', list);
-    this.addActivityLog('TAMBAH_SISWA', `Menambahkan manual peserta didik: ${newSiswa.nama}`, user);
+    this.addActivityLog(
+      'TAMBAH_SISWA',
+      `Menambahkan manual peserta didik: ${newSiswa.nama}`,
+      user
+    );
     return newSiswa;
   }
 
@@ -586,7 +608,11 @@ export class AppDataStore {
 
     const remaining = list.filter((s) => String(s.id) !== String(id));
     saveToStorage('siswa', remaining);
-    this.addActivityLog('HAPUS_SISWA', `Menghapus peserta didik: ${item.nama} (${item.lembaga_nama})`, user);
+    this.addActivityLog(
+      'HAPUS_SISWA',
+      `Menghapus peserta didik: ${item.nama} (${item.lembaga_nama})`,
+      user
+    );
     return true;
   }
 
@@ -779,19 +805,42 @@ export class AppDataStore {
     let lembagaList = this.getLembagaList();
     let siswaList = this.getSiswaList();
 
-    if (role === 'admin_kecamatan' && user.kecamatan_id) {
+    if (role === 'admin_kecamatan') {
+      const kecId = user.kecamatan_id ? String(user.kecamatan_id) : '';
+      const kecName = (user.kecamatan_nama ?? '').trim().toLowerCase();
       lembagaList = lembagaList.filter(
-        (l) => String(l.kecamatan_id) === String(user.kecamatan_id)
+        (l) =>
+          (kecId && String(l.kecamatan_id) === kecId) ||
+          (kecName && (l.kecamatan_nama ?? '').trim().toLowerCase() === kecName)
       );
+      const allowedIds = new Set(lembagaList.map((l) => String(l.id)));
       siswaList = siswaList.filter(
-        (s) => String(s.kecamatan_id) === String(user.kecamatan_id)
+        (s) =>
+          (kecId && String(s.kecamatan_id) === kecId) ||
+          (kecName && (s.kecamatan_nama ?? '').trim().toLowerCase() === kecName) ||
+          allowedIds.has(String(s.lembaga_id))
       );
-    } else if (role === 'operator_sekolah' && user.lembaga_id) {
+    } else if (role === 'operator_sekolah') {
+      const lemId = user.lembaga_id ? String(user.lembaga_id) : '';
+      const email = (user.email ?? '').trim().toLowerCase();
+      const lemName = (
+        user.lembaga_nama ??
+        (email.includes('ampel') ? 'TK Negeri Pembina Ampel' : '')
+      )
+        .trim()
+        .toLowerCase();
+
       lembagaList = lembagaList.filter(
-        (l) => String(l.id) === String(user.lembaga_id)
+        (l) =>
+          (lemId && String(l.id) === lemId) ||
+          (lemName && (l.nama ?? '').trim().toLowerCase() === lemName)
       );
+      const allowedIds = new Set(lembagaList.map((l) => String(l.id)));
       siswaList = siswaList.filter(
-        (s) => String(s.lembaga_id) === String(user.lembaga_id)
+        (s) =>
+          (lemId && String(s.lembaga_id) === lemId) ||
+          (lemName && (s.lembaga_nama ?? '').trim().toLowerCase() === lemName) ||
+          allowedIds.has(String(s.lembaga_id))
       );
     }
 

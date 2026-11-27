@@ -891,8 +891,8 @@ export default function DashboardPage() {
                     className="bg-purple-600 h-2.5 rounded-full"
                     style={{
                       width: `${stats.totalSiswa > 0
-                          ? (stats.siswaKB / stats.totalSiswa) * 100
-                          : 0
+                        ? (stats.siswaKB / stats.totalSiswa) * 100
+                        : 0
                         }%`,
                     }}
                   />
@@ -909,8 +909,8 @@ export default function DashboardPage() {
                     className="bg-blue-600 h-2.5 rounded-full"
                     style={{
                       width: `${stats.totalSiswa > 0
-                          ? (stats.siswaTK / stats.totalSiswa) * 100
-                          : 0
+                        ? (stats.siswaTK / stats.totalSiswa) * 100
+                        : 0
                         }%`,
                     }}
                   />
@@ -927,8 +927,8 @@ export default function DashboardPage() {
                     className="bg-amber-500 h-2.5 rounded-full"
                     style={{
                       width: `${stats.totalSiswa > 0
-                          ? (stats.siswaSPS / stats.totalSiswa) * 100
-                          : 0
+                        ? (stats.siswaSPS / stats.totalSiswa) * 100
+                        : 0
                         }%`,
                     }}
                   />
@@ -945,8 +945,8 @@ export default function DashboardPage() {
                     className="bg-emerald-600 h-2.5 rounded-full"
                     style={{
                       width: `${stats.totalSiswa > 0
-                          ? (stats.siswaTPA / stats.totalSiswa) * 100
-                          : 0
+                        ? (stats.siswaTPA / stats.totalSiswa) * 100
+                        : 0
                         }%`,
                     }}
                   />
